@@ -19,6 +19,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.aj.obd.ui.MainViewModel
+import com.aj.obd.ui.components.UpdateDialog
 import com.aj.obd.ui.screens.ConnectionScreen
 import com.aj.obd.ui.screens.DashboardScreen
 import com.aj.obd.ui.screens.DiagnosticsScreen
@@ -64,6 +66,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp(viewModel: MainViewModel) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
+    val showUpdateDialog by viewModel.showUpdateDialog.collectAsState()
+    val appUpdateInfo by viewModel.appUpdateInfo.collectAsState()
+
+    // Pop-up de Atualização OTA (GitHub Releases)
+    if (showUpdateDialog && appUpdateInfo != null) {
+        UpdateDialog(
+            updateInfo = appUpdateInfo!!,
+            onDismiss = { viewModel.dismissUpdateDialog() },
+            onDownload = { url -> viewModel.downloadUpdate(url) }
+        )
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),

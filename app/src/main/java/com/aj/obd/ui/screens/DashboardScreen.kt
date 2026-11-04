@@ -19,9 +19,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.aj.obd.core.adapter.ConnectionState
 import com.aj.obd.ui.MainViewModel
 import com.aj.obd.ui.components.CircularGauge
+import com.aj.obd.ui.components.ShiftLightBar
 import com.aj.obd.ui.theme.AmberGlow
 import com.aj.obd.ui.theme.CarbonDark
 import com.aj.obd.ui.theme.ElectricCyan
@@ -66,6 +69,9 @@ fun DashboardScreen(viewModel: MainViewModel) {
     val peakTurbo by viewModel.peakTurbo.collectAsState()
     val peakCoolant by viewModel.peakCoolant.collectAsState()
 
+    val isDatalogging by viewModel.isDatalogging.collectAsState()
+    val lastLogFile by viewModel.lastLogFile.collectAsState()
+
     val rpmSensor = sensors.find { it.id == "rpm" }
     val speedSensor = sensors.find { it.id == "speed" }
     val turboSensor = sensors.find { it.id == "turbo" }
@@ -74,6 +80,8 @@ fun DashboardScreen(viewModel: MainViewModel) {
 
     val isConnected = connState is ConnectionState.Connected
     val isEngineRunning = (rpmSensor?.currentValue ?: 0f) > 400f
+    val isOverheating = isConnected && (coolantSensor?.currentValue ?: 0f) >= 102f
+    val isLowBattery = isConnected && isEngineRunning && (batterySensor?.currentValue ?: 0f) in 0.1f..11.8f
 
     LazyColumn(
         modifier = Modifier
@@ -211,6 +219,83 @@ fun DashboardScreen(viewModel: MainViewModel) {
             }
         }
 
+        // Alerta de Superaquecimento do Motor (> 102°C)
+        if (isOverheating) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = RacingRed.copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = RacingRed, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "⚠️ ALERTA DE SUPERAQUECIMENTO: ${(coolantSensor?.currentValue ?: 0f).toInt()}°C!",
+                                color = RacingRed,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = "Temperatura da água acima do limite seguro. Verifique a ventoinha e o nível de arrefecimento imediatamente.",
+                                color = TextPrimary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Alerta de Tensão da Bateria / Alternador (< 11.8V com motor ligado)
+        if (isLowBattery) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = AmberGlow.copy(alpha = 0.2f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "⚠️ TENSÃO BAIXA DA BATERIA: ${"%.1f".format(batterySensor?.currentValue ?: 0f)}V!",
+                                color = AmberGlow,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = "Com o motor em funcionamento, a tensão deve estar entre 13.5V e 14.5V. Possível defeito no alternador.",
+                                color = TextPrimary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Shift Light Bar (Luzes Sequenciais de Troca de Marcha)
+        item {
+            ShiftLightBar(
+                rpm = rpmSensor?.currentValue ?: 0f,
+                shiftRpm = 5300f,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         // Manômetros Principais: Rotação (RPM) e Velocidade
         item {
             Row(
@@ -328,6 +413,81 @@ fun DashboardScreen(viewModel: MainViewModel) {
                             Text(text = "Pressão Máx:", color = TextSecondary, fontSize = 11.sp)
                             Text(text = "%.2f bar".format(peakTurbo), color = RacingRed, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                         }
+                    }
+                }
+            }
+        }
+
+        // Painel do Datalogger CSV (Gravação de Telemetria do Trajeto)
+        item {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.FiberManualRecord,
+                                contentDescription = null,
+                                tint = if (isDatalogging) RacingRed else TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "DATALOGGER DE TELEMETRIA (CSV)",
+                                color = if (isDatalogging) RacingRed else TextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (isDatalogging) {
+                            Text(
+                                text = "GRAVANDO...",
+                                color = RacingRed,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (isDatalogging)
+                            "Gravando leituras de RPM, velocidade, temperatura e pressão em arquivo CSV a cada 120ms."
+                        else
+                            "Grave trajetos completos, acelerações e parâmetros da injeção para analisar em planilha ou software de telemetria.",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { viewModel.toggleDatalogging() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isDatalogging) RacingRed else AmberGlow,
+                            contentColor = if (isDatalogging) Color.White else Color.Black
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = if (isDatalogging) Icons.Default.Stop else Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isDatalogging) "Parar Gravação & Exportar CSV" else "Iniciar Gravação do Trajeto",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }

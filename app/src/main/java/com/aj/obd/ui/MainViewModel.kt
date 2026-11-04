@@ -13,9 +13,12 @@ import com.aj.obd.core.adapter.Elm327Driver
 import com.aj.obd.core.adapter.ObdConnection
 import com.aj.obd.core.adapter.SimulatorConnection
 import com.aj.obd.core.kwp.Kwp2000Client
+import com.aj.obd.core.logger.TelemetryLogger
 import com.aj.obd.core.proxi.ProxiBackup
 import com.aj.obd.core.proxi.ProxiManager
 import com.aj.obd.core.uds.UdsClient
+import com.aj.obd.core.update.AppUpdateInfo
+import com.aj.obd.core.update.UpdateChecker
 import com.aj.obd.data.VehicleCatalog
 import com.aj.obd.data.database.AutomotiveDatabaseHelper
 import com.aj.obd.domain.model.DtcFault
@@ -46,7 +49,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val simulator = SimulatorConnection()
     private val realConnection = BluetoothClassicConnection(application, bluetoothAdapter)
 
-    // Por padrão inicia no modo real (sem gerar dados de teste fictícios automaticamente)
     var currentConnection: ObdConnection = realConnection
         private set
 
@@ -55,6 +57,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Base de Conhecimento SQLite
     val dbHelper = AutomotiveDatabaseHelper(application)
+
+    // Atualização OTA (GitHub Releases)
+    private val updateChecker = UpdateChecker(application)
+    private val _appUpdateInfo = MutableStateFlow<AppUpdateInfo?>(null)
+    val appUpdateInfo: StateFlow<AppUpdateInfo?> = _appUpdateInfo.asStateFlow()
+
+    private val _showUpdateDialog = MutableStateFlow(false)
+    val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
+    // Datalogger CSV
+    private val telemetryLogger = TelemetryLogger(application)
+    private val _isDatalogging = MutableStateFlow(false)
+    val isDatalogging: StateFlow<Boolean> = _isDatalogging.asStateFlow()
+
+    private val _lastLogFile = MutableStateFlow<File?>(null)
+    val lastLogFile: StateFlow<File?> = _lastLogFile.asStateFlow()
 
     // Estado do Simulador
     private val _isSimulatorActive = MutableStateFlow(false)
@@ -138,6 +156,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isScanningDtc = MutableStateFlow(false)
     val isScanningDtc: StateFlow<Boolean> = _isScanningDtc.asStateFlow()
 
+    // Teste de Atuadores
+    private val _actuatorTestMessage = MutableStateFlow<String?>(null)
+    val actuatorTestMessage: StateFlow<String?> = _actuatorTestMessage.asStateFlow()
+
     // Clientes de Diagnóstico
     private var udsClient = UdsClient(currentConnection)
     private var kwpClient = Kwp2000Client(currentConnection)
@@ -166,14 +188,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             dbHelper.initializeDatabase()
+            // Verifica atualizações automaticamente na inicialização
+            checkForUpdates(silent = true)
         }
         selectVehicle(VehicleCatalog.vehicles.first()) // Padrão Palio 2001
         _proxiFeatures.value = proxiManager.getAvailableFeatures(_currentProxiHex.value)
     }
 
     /**
-     * Limpa e zera imediatamente todos os dados do Cockpit (sensores e picos).
+     * Verifica atualizações no GitHub Releases e abre o Pop-up
      */
+    fun checkForUpdates(silent: Boolean = false) {
+        viewModelScope.launch {
+            val res = updateChecker.checkForUpdates()
+            if (res.isSuccess) {
+                val info = res.getOrThrow()
+                _appUpdateInfo.value = info
+                if (info.hasUpdate) {
+                    _showUpdateDialog.value = true
+                } else if (!silent) {
+                    _autoDetectStatus.value = "ℹ️ Você já está usando a versão mais recente (v${info.currentVersion})!"
+                }
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _showUpdateDialog.value = false
+    }
+
+    fun downloadUpdate(url: String) {
+        updateChecker.openDownloadUrl(url)
+        _showUpdateDialog.value = false
+    }
+
+    // Inicia e para o Datalogger CSV
+    fun toggleDatalogging() {
+        viewModelScope.launch {
+            if (_isDatalogging.value) {
+                val file = telemetryLogger.stopLogging()
+                _isDatalogging.value = false
+                _lastLogFile.value = file
+                file?.let { telemetryLogger.shareLogFile(it) }
+            } else {
+                val res = telemetryLogger.startLogging(_selectedVehicle.value.name)
+                if (res.isSuccess) {
+                    _isDatalogging.value = true
+                }
+            }
+        }
+    }
+
     fun resetCockpitData() {
         _sensors.value = _sensors.value.map { it.copy(currentValue = 0f, history = emptyList()) }
         _peakRpm.value = 0f
@@ -251,7 +316,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             stopTelemetryLoop()
             currentConnection.disconnect()
-            resetCockpitData() // Zera tudo ao alternar de modo
+            resetCockpitData()
 
             _isSimulatorActive.value = useSimulator
             currentConnection = if (useSimulator) simulator else realConnection
@@ -285,7 +350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             stopTelemetryLoop()
             currentConnection.disconnect()
             _isSimulatorActive.value = false
-            resetCockpitData() // Zera completamente todos os dados
+            resetCockpitData()
         }
     }
 
@@ -302,7 +367,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val rawRes = currentConnection.sendRawCommand(cmd).getOrNull() ?: ""
                         val parsedVal = parseSensorValue(sensor, rawRes, isKwp)
 
-                        // Grava os picos
                         if (sensor.id == "rpm" && parsedVal > _peakRpm.value) _peakRpm.value = parsedVal
                         if (sensor.id == "speed" && parsedVal > _peakSpeed.value) _peakSpeed.value = parsedVal
                         if (sensor.id == "turbo" && parsedVal > _peakTurbo.value) _peakTurbo.value = parsedVal
@@ -311,6 +375,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         sensor.copy(currentValue = parsedVal)
                     }
                     _sensors.value = updated
+
+                    // Grava instantâneo no Datalogger se ativo
+                    if (_isDatalogging.value) {
+                        telemetryLogger.logSnapshot(updated)
+                    }
                 }
                 delay(120)
             }
@@ -398,6 +467,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 udsClient.clearDtcs()
             }
             _dtcFaults.value = emptyList()
+        }
+    }
+
+    // Teste de Atuadores (KWP2000 / UDS)
+    fun executeActuatorTest(testName: String, testCmd: String) {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Acionando: $testName..."
+            val res = currentConnection.sendRawCommand(testCmd)
+            delay(1000)
+            if (res.isSuccess) {
+                _actuatorTestMessage.value = "✅ $testName executado com sucesso!"
+            } else {
+                _actuatorTestMessage.value = "❌ Falha no teste $testName: ${res.exceptionOrNull()?.message}"
+            }
         }
     }
 
