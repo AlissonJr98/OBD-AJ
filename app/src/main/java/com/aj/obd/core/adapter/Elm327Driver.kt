@@ -13,17 +13,17 @@ data class AdapterInfo(
 class Elm327Driver(private val connection: ObdConnection) {
 
     suspend fun handshake(): Result<AdapterInfo> {
-        // Reset do chip
-        connection.sendRawCommand("ATWS") // Warm Start (mais rápido que ATZ)
+        // Reset rápido do chip ELM/STN
+        connection.sendRawCommand("ATWS")
         val atz = connection.sendRawCommand("ATZ").getOrDefault("")
 
-        // Desliga eco e espaços
+        // Desliga eco, espaços e quebras de linha extras
         connection.sendRawCommand("ATE0")
         connection.sendRawCommand("ATL0")
-        connection.sendRawCommand("ATS0") // Sem espaços para agilizar transferência
-        connection.sendRawCommand("ATH1") // Ativa headers para sabermos o emissor
+        connection.sendRawCommand("ATS0")
+        connection.sendRawCommand("ATH1") // Ativa cabeçalhos para sabermos remetente e destinatário
 
-        // Identifica versão do firmware
+        // Lê versão do firmware e tensão da bateria
         val atiRes = connection.sendRawCommand("ATI").getOrDefault(atz)
         val voltage = connection.readBatteryVoltage()
 
@@ -49,27 +49,48 @@ class Elm327Driver(private val connection: ObdConnection) {
         )
     }
 
+    /**
+     * Configura o adaptador especificamente para a ECU escolhida,
+     * tratando adequadamente a rede K-Line (Palio 2001, Uno, Marea) e rede CAN (Toro, Renegade).
+     */
     suspend fun configureForEcu(ecu: EcuModule): Result<Unit> {
-        val protocolCmd = when (ecu.protocol) {
-            ProtocolType.CAN_11BIT_500K -> "ATSP6"  // ISO 15765-4 CAN (11 bit, 500 kbaud)
-            ProtocolType.CAN_29BIT_500K -> "ATSP7"  // ISO 15765-4 CAN (29 bit, 500 kbaud)
-            ProtocolType.CAN_11BIT_250K -> "ATSP8"  // ISO 15765-4 CAN (11 bit, 250 kbaud)
-            ProtocolType.KLINE_KWP2000_FAST -> "ATSP5" // KWP2000 Fast Init (ISO 14230-4)
-            ProtocolType.KLINE_ISO9141 -> "ATSP3"   // ISO 9141-2
+        when (ecu.protocol) {
+            ProtocolType.CAN_11BIT_500K -> {
+                connection.sendRawCommand("ATSP6")  // ISO 15765-4 CAN (11 bit, 500 kbaud)
+                connection.sendRawCommand("ATSH ${ecu.requestHeader}")
+                connection.sendRawCommand("ATCRA ${ecu.responseHeader}")
+                connection.sendRawCommand("ATAL")
+                connection.sendRawCommand("ATAT1")
+            }
+            ProtocolType.CAN_29BIT_500K -> {
+                connection.sendRawCommand("ATSP7")  // ISO 15765-4 CAN (29 bit, 500 kbaud)
+                connection.sendRawCommand("ATSH ${ecu.requestHeader}")
+                connection.sendRawCommand("ATAL")
+            }
+            ProtocolType.CAN_11BIT_250K -> {
+                connection.sendRawCommand("ATSP8")  // ISO 15765-4 CAN (11 bit, 250 kbaud)
+                connection.sendRawCommand("ATSH ${ecu.requestHeader}")
+                connection.sendRawCommand("ATCRA ${ecu.responseHeader}")
+            }
+            ProtocolType.KLINE_KWP2000_FAST -> {
+                // Protocolo do Palio 2001 Fire (Marelli 4AF / 49F / ME7.3H4)
+                connection.sendRawCommand("ATSP5")  // ISO 14230-4 KWP (Fast Init)
+                connection.sendRawCommand("ATIB 10") // 10.400 bps baud rate
+                connection.sendRawCommand("ATIIA %02X".format(ecu.physicalAddress)) // Endereço físico (0x10)
+                connection.sendRawCommand("ATSH 81 %02X F1".format(ecu.physicalAddress))
+                connection.sendRawCommand("ATWM 81 %02X F1 3E".format(ecu.physicalAddress)) // Keep-alive K-Line
+                connection.sendRawCommand("ATSW 20") // Acorda a cada 2 segundos
+                connection.sendRawCommand("ATFI")   // Executa a inicialização rápida
+            }
+            ProtocolType.KLINE_ISO9141 -> {
+                // Protocolo do ABS Bosch 5.3 e Airbag MY97/MY99 (Palio 2001)
+                connection.sendRawCommand("ATSP3")  // ISO 9141-2
+                val baudCmd = if (ecu.baudRate == 4800) "ATIB 48" else "ATIB 10"
+                connection.sendRawCommand(baudCmd)
+                connection.sendRawCommand("ATSH 68 %02X F1".format(ecu.physicalAddress))
+                connection.sendRawCommand("ATSI")   // Inicialização lenta 5-baud
+            }
         }
-
-        connection.sendRawCommand(protocolCmd)
-        // Define o Header CAN / K-Line de destino
-        connection.sendRawCommand("ATSH ${ecu.requestHeader}")
-        
-        // Se for CAN, define filtro para escutar somente a resposta dessa central
-        if (ecu.protocol in listOf(ProtocolType.CAN_11BIT_500K, ProtocolType.CAN_11BIT_250K)) {
-            connection.sendRawCommand("ATCRA ${ecu.responseHeader}")
-        }
-        
-        // Habilita mensagens longas (ISO-TP)
-        connection.sendRawCommand("ATAL")
-        connection.sendRawCommand("ATAT1") // Adaptive Timing 1
 
         return Result.success(Unit)
     }
