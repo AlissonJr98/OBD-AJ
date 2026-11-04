@@ -57,7 +57,7 @@ import com.aj.obd.ui.theme.TextSecondary
 @Composable
 fun ConnectionScreen(viewModel: MainViewModel) {
     val connState by viewModel.connectionState.collectAsState()
-    var isSimEnabled by remember { mutableStateOf(true) }
+    val isSimActive by viewModel.isSimulatorActive.collectAsState()
 
     LazyColumn(
         modifier = Modifier
@@ -106,10 +106,9 @@ fun ConnectionScreen(viewModel: MainViewModel) {
                         )
                     }
                     Switch(
-                        checked = isSimEnabled,
-                        onCheckedChange = {
-                            isSimEnabled = it
-                            viewModel.toggleSimulator(it)
+                        checked = isSimActive,
+                        onCheckedChange = { enable ->
+                            viewModel.toggleSimulator(enable)
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.Black,
@@ -211,7 +210,7 @@ fun ConnectionScreen(viewModel: MainViewModel) {
                 }
             } else {
                 Button(
-                    onClick = { viewModel.toggleSimulator(isSimEnabled) },
+                    onClick = { viewModel.toggleSimulator(isSimActive) },
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
                     modifier = Modifier.fillMaxWidth()

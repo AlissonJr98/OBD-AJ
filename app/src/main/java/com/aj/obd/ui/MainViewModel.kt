@@ -46,7 +46,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val simulator = SimulatorConnection()
     private val realConnection = BluetoothClassicConnection(application, bluetoothAdapter)
 
-    var currentConnection: ObdConnection = simulator
+    // Por padrão inicia no modo real (sem gerar dados de teste fictícios automaticamente)
+    var currentConnection: ObdConnection = realConnection
         private set
 
     val connectionState: StateFlow<ConnectionState>
@@ -54,6 +55,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Base de Conhecimento SQLite
     val dbHelper = AutomotiveDatabaseHelper(application)
+
+    // Estado do Simulador
+    private val _isSimulatorActive = MutableStateFlow(false)
+    val isSimulatorActive: StateFlow<Boolean> = _isSimulatorActive.asStateFlow()
+
+    // Controle de Telemetria e Congelamento (Pause/Resume)
+    private val _isTelemetryPaused = MutableStateFlow(false)
+    val isTelemetryPaused: StateFlow<Boolean> = _isTelemetryPaused.asStateFlow()
+
+    // Valores Máximos Registrados (Peak Hold)
+    private val _peakRpm = MutableStateFlow(0f)
+    val peakRpm: StateFlow<Float> = _peakRpm.asStateFlow()
+
+    private val _peakSpeed = MutableStateFlow(0f)
+    val peakSpeed: StateFlow<Float> = _peakSpeed.asStateFlow()
+
+    private val _peakTurbo = MutableStateFlow(0f)
+    val peakTurbo: StateFlow<Float> = _peakTurbo.asStateFlow()
+
+    private val _peakCoolant = MutableStateFlow(0f)
+    val peakCoolant: StateFlow<Float> = _peakCoolant.asStateFlow()
 
     // Filtros de Veículo
     private val _searchQuery = MutableStateFlow("")
@@ -84,7 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, VehicleCatalog.vehicles)
 
-    // Veículo e ECU Selecionados
+    // Veículo e ECU Selecionados (Palio 2001 padrão)
     private val _selectedVehicle = MutableStateFlow<Vehicle>(VehicleCatalog.vehicles.first())
     val selectedVehicle: StateFlow<Vehicle> = _selectedVehicle.asStateFlow()
 
@@ -97,14 +119,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAutoDetecting = MutableStateFlow(false)
     val isAutoDetecting: StateFlow<Boolean> = _isAutoDetecting.asStateFlow()
 
-    // Sensores ao Vivo
+    // Sensores ao Vivo (Iniciam ZERADOS)
     private val _sensors = MutableStateFlow<List<LiveSensor>>(
         listOf(
             LiveSensor("rpm", "Rotação do Motor", "RPM", "010C", "RPM", 0f, 0f, 6000f),
             LiveSensor("speed", "Velocidade do Veículo", "VEL", "010D", "km/h", 0f, 0f, 220f),
             LiveSensor("coolant", "Temperatura da Água", "TEMP", "0105", "°C", 0f, 40f, 130f),
             LiveSensor("turbo", "Pressão do Coletor / Turbo", "MAP", "221000", "bar", 0f, 0f, 2.5f),
-            LiveSensor("battery", "Tensão da Bateria", "BATT", "ATRV", "V", 13.8f, 10f, 16f)
+            LiveSensor("battery", "Tensão da Bateria", "BATT", "ATRV", "V", 0f, 10f, 16f)
         )
     )
     val sensors: StateFlow<List<LiveSensor>> = _sensors.asStateFlow()
@@ -149,6 +171,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _proxiFeatures.value = proxiManager.getAvailableFeatures(_currentProxiHex.value)
     }
 
+    /**
+     * Limpa e zera imediatamente todos os dados do Cockpit (sensores e picos).
+     */
+    fun resetCockpitData() {
+        _sensors.value = _sensors.value.map { it.copy(currentValue = 0f, history = emptyList()) }
+        _peakRpm.value = 0f
+        _peakSpeed.value = 0f
+        _peakTurbo.value = 0f
+        _peakCoolant.value = 0f
+    }
+
+    fun toggleTelemetryPause() {
+        _isTelemetryPaused.value = !_isTelemetryPaused.value
+    }
+
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
     }
@@ -163,7 +200,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectVehicle(vehicle: Vehicle) {
         _selectedVehicle.value = vehicle
-        // Seleciona automaticamente a ECU primária (padrão)
         val defaultEcu = vehicle.supportedEcus.find { it.isDefault } 
             ?: vehicle.supportedEcus.firstOrNull()
         _selectedEcu.value = defaultEcu
@@ -186,18 +222,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Auto-detecção inteligente de ECU:
-     * Interroga a central via KWP2000 (0x1A 0x90) ou UDS, obtém o ISO-Code e busca
-     * na base de dados para configurar a central automaticamente sem o usuário adivinhar.
-     */
     fun autoDetectEcu() {
         viewModelScope.launch {
             _isAutoDetecting.value = true
             _autoDetectStatus.value = "Interrogando central via K-Line / CAN..."
             delay(400)
 
-            // 1. Tenta KWP2000 (comum no Palio 2001 e linha Fiat antiga)
             val kwpRes = kwpClient.readEcuIdentification(0x90)
             val isoCode = kwpRes.getOrNull()
 
@@ -211,7 +241,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _autoDetectStatus.value = "⚠️ ISO Code recebido ($isoCode), mas não mapeado no banco."
                 }
             } else {
-                // Se KWP falhar, mantém a ECU padrão e avisa
                 _autoDetectStatus.value = "ℹ️ Central configurada: ${_selectedEcu.value?.name}"
             }
             _isAutoDetecting.value = false
@@ -220,22 +249,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleSimulator(useSimulator: Boolean) {
         viewModelScope.launch {
+            stopTelemetryLoop()
             currentConnection.disconnect()
+            resetCockpitData() // Zera tudo ao alternar de modo
+
+            _isSimulatorActive.value = useSimulator
             currentConnection = if (useSimulator) simulator else realConnection
             udsClient = UdsClient(currentConnection)
             kwpClient = Kwp2000Client(currentConnection)
+
             if (useSimulator) {
                 currentConnection.connect("virtual")
                 _selectedEcu.value?.let { configureEcuOnAdapter(it) }
                 startTelemetryLoop()
-            } else {
-                stopTelemetryLoop()
             }
         }
     }
 
     fun connectBluetooth(address: String) {
         viewModelScope.launch {
+            _isSimulatorActive.value = false
             currentConnection = realConnection
             udsClient = UdsClient(currentConnection)
             kwpClient = Kwp2000Client(currentConnection)
@@ -251,6 +284,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             stopTelemetryLoop()
             currentConnection.disconnect()
+            _isSimulatorActive.value = false
+            resetCockpitData() // Zera completamente todos os dados
         }
     }
 
@@ -258,7 +293,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         telemetryJob?.cancel()
         telemetryJob = viewModelScope.launch {
             while (isActive) {
-                if (currentConnection.state.value is ConnectionState.Connected) {
+                if (currentConnection.state.value is ConnectionState.Connected && !_isTelemetryPaused.value) {
                     val ecu = _selectedEcu.value
                     val isKwp = ecu?.protocol == ProtocolType.KLINE_KWP2000_FAST
 
@@ -266,6 +301,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val cmd = if (isKwp && sensor.id == "rpm") "2101" else sensor.didHex
                         val rawRes = currentConnection.sendRawCommand(cmd).getOrNull() ?: ""
                         val parsedVal = parseSensorValue(sensor, rawRes, isKwp)
+
+                        // Grava os picos
+                        if (sensor.id == "rpm" && parsedVal > _peakRpm.value) _peakRpm.value = parsedVal
+                        if (sensor.id == "speed" && parsedVal > _peakSpeed.value) _peakSpeed.value = parsedVal
+                        if (sensor.id == "turbo" && parsedVal > _peakTurbo.value) _peakTurbo.value = parsedVal
+                        if (sensor.id == "coolant" && parsedVal > _peakCoolant.value) _peakCoolant.value = parsedVal
+
                         sensor.copy(currentValue = parsedVal)
                     }
                     _sensors.value = updated
@@ -283,7 +325,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun parseSensorValue(sensor: LiveSensor, rawRes: String, isKwp: Boolean): Float {
         val clean = rawRes.replace(" ", "").replace("\n", "").trim()
         if (isKwp && clean.startsWith("6101")) {
-            // No Palio 2001 (KWP2000 0x21 0x01), bytes 0..1 são RPM e byte 2 é temperatura
             return when (sensor.id) {
                 "rpm" -> {
                     if (clean.length >= 8) {
@@ -333,14 +374,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val ecuName = ecu?.name ?: "Central Ativa"
 
             val faults = if (ecu?.protocol in listOf(ProtocolType.KLINE_KWP2000_FAST, ProtocolType.KLINE_ISO9141)) {
-                // Diagnóstico K-Line / KWP2000 (Palio 2001)
                 kwpClient.readDtcKwp(ecuName).getOrDefault(emptyList())
             } else {
-                // Diagnóstico CAN / UDS
                 udsClient.readDtcs(ecuName).getOrDefault(emptyList())
             }
 
-            // Enriquece com as descrições da base SQLite se disponível
             val enriched = faults.map { f ->
                 val dbDesc = dbHelper.getDtcDescriptionPt(f.code)
                 if (!dbDesc.isNullOrBlank()) f.copy(description = dbDesc) else f
@@ -363,10 +401,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Exclusivo para Fiat K-Line (ex: Palio 2001 Fire com Marelli 4AF):
-     * Executa o Reset dos Parâmetros Autoadaptativos de Combustível/Mistura.
-     */
     fun resetAutoadaptiveParameters() {
         viewModelScope.launch {
             val res = kwpClient.resetAutoadaptiveParameters()
