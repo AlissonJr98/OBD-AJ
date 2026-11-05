@@ -6,7 +6,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.aj.obd.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -97,8 +100,8 @@ class UpdateChecker(private val context: Context) {
     }
 
     /**
-     * Baixa o APK diretamente dentro do aplicativo com notificação de progresso
-     * sem sair da tela nem abrir o navegador (Igual CineList e LivennIA)
+     * Baixa o APK diretamente dentro do aplicativo com barra de progresso suave
+     * sem sair da tela e instala automaticamente ao concluir (Igual CineList e LivennIA)
      */
     suspend fun downloadApkInApp(
         apkUrl: String,
@@ -115,25 +118,26 @@ class UpdateChecker(private val context: Context) {
                 destinationFile.delete()
             }
 
-            var currentUrl = apkUrl
+            var currentUrl = if (apkUrl.contains("?")) "$apkUrl&t=${System.currentTimeMillis()}" else "$apkUrl?t=${System.currentTimeMillis()}"
             var connection: HttpURLConnection
 
-            // Segue redirects (GitHub costuma redirecionar para objetos S3 do GitHub Releases)
+            // Segue redirects com segurança (GitHub Releases redireciona para storage S3 da AWS)
             var redirects = 0
             while (true) {
                 val urlObj = URL(currentUrl)
                 connection = urlObj.openConnection() as HttpURLConnection
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 10000
-                connection.readTimeout = 15000
-                connection.setRequestProperty("User-Agent", "OBD-AJ-InApp-Updater")
+                connection.connectTimeout = 12000
+                connection.readTimeout = 20000
+                connection.setRequestProperty("User-Agent", "OBD-AJ-Android-Updater")
+                connection.setRequestProperty("Accept", "application/octet-stream, application/vnd.android.package-archive, */*")
 
                 val status = connection.responseCode
                 if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
                     val newUrl = connection.getHeaderField("Location")
                     currentUrl = newUrl
                     redirects++
-                    if (redirects > 5) throw IllegalStateException("Muitos redirecionamentos ao baixar atualização.")
+                    if (redirects > 6) throw IllegalStateException("Muitos redirecionamentos ao baixar atualização.")
                     continue
                 }
                 break
@@ -143,21 +147,27 @@ class UpdateChecker(private val context: Context) {
             val input: InputStream = connection.inputStream
             val output = FileOutputStream(destinationFile)
 
-            val data = ByteArray(8192)
+            val data = ByteArray(16 * 1024) // 16 KB buffer
             var total: Long = 0
             var count: Int
+            var lastUiUpdateTime = 0L
 
-            val totalMb = if (fileLength > 0) fileLength / (1024f * 1024f) else 36f
+            val totalMb = if (fileLength > 0) fileLength / (1024f * 1024f) else 35.8f
 
             while (input.read(data).also { count = it } != -1) {
                 total += count
                 output.write(data, 0, count)
 
-                val progress = if (fileLength > 0) total.toFloat() / fileLength.toFloat() else 0.5f
-                val downloadedMb = total / (1024f * 1024f)
+                val now = System.currentTimeMillis()
+                // Limita dispatch para a UI a cada 60ms para manter a tela fluida em 60fps
+                if (now - lastUiUpdateTime > 60L || (fileLength > 0 && total >= fileLength)) {
+                    lastUiUpdateTime = now
+                    val progress = if (fileLength > 0) total.toFloat() / fileLength.toFloat() else 0.5f
+                    val downloadedMb = total / (1024f * 1024f)
 
-                withContext(Dispatchers.Main) {
-                    onProgress(progress.coerceIn(0f, 1f), downloadedMb, totalMb)
+                    withContext(Dispatchers.Main) {
+                        onProgress(progress.coerceIn(0f, 1f), downloadedMb, totalMb)
+                    }
                 }
             }
 
@@ -165,7 +175,25 @@ class UpdateChecker(private val context: Context) {
             output.close()
             input.close()
 
+            // Validação de integridade do arquivo APK baixado
+            if (destinationFile.length() < 100_000L) {
+                destinationFile.delete()
+                throw IllegalStateException("Arquivo da atualização incompleto ou corrompido.")
+            }
+
+            // Verifica cabeçalho ZIP ('P', 'K')
+            val isZip = destinationFile.inputStream().use { stream ->
+                val header = ByteArray(2)
+                stream.read(header)
+                header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte()
+            }
+            if (!isZip) {
+                destinationFile.delete()
+                throw IllegalStateException("O arquivo baixado não é um pacote APK válido.")
+            }
+
             withContext(Dispatchers.Main) {
+                onProgress(1f, total / (1024f * 1024f), totalMb)
                 onSuccess(destinationFile)
             }
         } catch (e: Exception) {
@@ -175,24 +203,44 @@ class UpdateChecker(private val context: Context) {
         }
     }
 
+    fun canRequestPackageInstalls(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+    }
+
+    fun openInstallPermissionSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${context.packageName}")
+            ).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Permita a instalação do OBD AJ para concluir a atualização.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     /**
      * Dispara o instalador nativo do Android diretamente na tela do app
      */
-    fun installApk(file: File) {
-        if (!file.exists() || file.length() == 0L) return
+    fun installApk(file: File): Boolean {
+        if (!file.exists() || file.length() < 100_000L) {
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "APK não encontrado ou corrompido.", Toast.LENGTH_SHORT).show()
+            }
+            return false
+        }
 
         // Verifica permissão no Android 8.0+ para instalar pacotes desconhecidos
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (!context.packageManager.canRequestPackageInstalls()) {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${context.packageName}")
-                ).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
-                return
-            }
+        if (!canRequestPackageInstalls()) {
+            openInstallPermissionSettings()
+            return false
         }
 
         try {
@@ -204,14 +252,22 @@ class UpdateChecker(private val context: Context) {
 
             val installIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
 
             // Garante permissão explícita para os gerenciadores de instalação do Android
-            val resolveList = context.packageManager.queryIntentActivities(
-                installIntent,
-                PackageManager.MATCH_DEFAULT_ONLY
-            )
+            val resolveList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.queryIntentActivities(
+                    installIntent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.queryIntentActivities(installIntent, PackageManager.MATCH_DEFAULT_ONLY)
+            }
+
             for (resolveInfo in resolveList) {
                 context.grantUriPermission(
                     resolveInfo.activityInfo.packageName,
@@ -221,8 +277,13 @@ class UpdateChecker(private val context: Context) {
             }
 
             context.startActivity(installIntent)
+            return true
         } catch (e: Exception) {
             e.printStackTrace()
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Erro ao abrir o instalador: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+            return false
         }
     }
 

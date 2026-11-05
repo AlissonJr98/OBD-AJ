@@ -5,6 +5,7 @@ import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aj.obd.core.adapter.AdapterType
@@ -98,6 +99,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _downloadProgressText = MutableStateFlow("")
     val downloadProgressText: StateFlow<String> = _downloadProgressText.asStateFlow()
+
+    private val _downloadedApkFile = MutableStateFlow<File?>(null)
+    val downloadedApkFile: StateFlow<File?> = _downloadedApkFile.asStateFlow()
+
+    private val _updateError = MutableStateFlow<String?>(null)
+    val updateError: StateFlow<String?> = _updateError.asStateFlow()
 
     // Painel e Dispositivos Bluetooth Pareados
     private val _pairedDevices = MutableStateFlow<List<PairedBluetoothDevice>>(emptyList())
@@ -338,14 +345,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (info.hasUpdate) {
                     _showUpdateDialog.value = true
                 } else if (!silent) {
-                    _autoDetectStatus.value = "ℹ️ Você já está usando a versão mais recente (v${info.currentVersion})!"
+                    Toast.makeText(
+                        getApplication(),
+                        "Você já está usando a versão mais recente (v${info.currentVersion})!",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
+            } else if (!silent) {
+                Toast.makeText(
+                    getApplication(),
+                    "Não foi possível verificar atualizações. Verifique a internet.",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
 
     fun dismissUpdateDialog() {
-        _showUpdateDialog.value = false
+        if (!_isDownloadingUpdate.value) {
+            _showUpdateDialog.value = false
+        }
     }
 
     fun downloadUpdate(url: String) {
@@ -356,7 +375,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isDownloadingUpdate.value = true
             _downloadProgress.value = 0f
-            _downloadProgressText.value = "Iniciando download da atualização..."
+            _downloadProgressText.value = "Conectando ao GitHub para baixar..."
+            _updateError.value = null
+            _downloadedApkFile.value = null
 
             updateChecker.downloadApkInApp(
                 apkUrl = downloadUrl,
@@ -367,14 +388,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onSuccess = { file ->
                     _isDownloadingUpdate.value = false
                     _downloadProgress.value = 1f
-                    _downloadProgressText.value = "Download concluído! Abrindo instalador..."
+                    _downloadProgressText.value = "Download 100% concluído! Abrindo instalador..."
+                    _downloadedApkFile.value = file
+                    Toast.makeText(getApplication(), "Download concluído! Abrindo instalador nativo...", Toast.LENGTH_SHORT).show()
+                    // Instala automaticamente assim que o download terminar
                     updateChecker.installApk(file)
                 },
                 onError = { err ->
                     _isDownloadingUpdate.value = false
+                    _updateError.value = err
                     _downloadProgressText.value = err
+                    Toast.makeText(getApplication(), err, Toast.LENGTH_LONG).show()
                 }
             )
+        }
+    }
+
+    fun installDownloadedApk() {
+        val file = _downloadedApkFile.value
+        if (file != null && file.exists()) {
+            updateChecker.installApk(file)
         }
     }
 

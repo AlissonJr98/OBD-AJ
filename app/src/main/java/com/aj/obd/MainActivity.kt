@@ -77,6 +77,8 @@ fun MainApp(viewModel: MainViewModel) {
     val isDownloadingUpdate by viewModel.isDownloadingUpdate.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val downloadProgressText by viewModel.downloadProgressText.collectAsState()
+    val downloadedApkFile by viewModel.downloadedApkFile.collectAsState()
+    val updateError by viewModel.updateError.collectAsState()
     val showConnectionSheet by viewModel.showConnectionSheet.collectAsState()
 
     // Painel Futurista de Conexão Bluetooth
@@ -94,8 +96,11 @@ fun MainApp(viewModel: MainViewModel) {
             isDownloading = isDownloadingUpdate,
             downloadProgress = downloadProgress,
             downloadProgressText = downloadProgressText,
+            downloadedFile = downloadedApkFile,
+            updateError = updateError,
             onDismiss = { viewModel.dismissUpdateDialog() },
-            onDownload = { url -> viewModel.downloadUpdate(url) }
+            onDownload = { url -> viewModel.downloadUpdate(url) },
+            onInstall = { viewModel.installDownloadedApk() }
         )
     }
 
