@@ -12,10 +12,18 @@ import com.aj.obd.core.adapter.ConnectionState
 import com.aj.obd.core.adapter.Elm327Driver
 import com.aj.obd.core.adapter.ObdConnection
 import com.aj.obd.core.adapter.SimulatorConnection
+import com.aj.obd.core.fuel.FlexFuelManager
+import com.aj.obd.core.fuel.FlexFuelStatus
 import com.aj.obd.core.kwp.Kwp2000Client
+import com.aj.obd.core.license.LicenseManager
+import com.aj.obd.core.license.LicenseState
 import com.aj.obd.core.logger.TelemetryLogger
+import com.aj.obd.core.performance.DragMeterState
+import com.aj.obd.core.performance.PerformanceMeter
+import com.aj.obd.core.performance.PerformanceRun
 import com.aj.obd.core.proxi.ProxiBackup
 import com.aj.obd.core.proxi.ProxiManager
+import com.aj.obd.core.report.PdfReportGenerator
 import com.aj.obd.core.uds.UdsClient
 import com.aj.obd.core.update.AppUpdateInfo
 import com.aj.obd.core.update.UpdateChecker
@@ -73,6 +81,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _lastLogFile = MutableStateFlow<File?>(null)
     val lastLogFile: StateFlow<File?> = _lastLogFile.asStateFlow()
+
+    // Gerador de Laudos Técnicos em PDF
+    private val pdfReportGenerator = PdfReportGenerator(application)
+    private val _lastGeneratedPdf = MutableStateFlow<File?>(null)
+    val lastGeneratedPdf: StateFlow<File?> = _lastGeneratedPdf.asStateFlow()
+
+    // Teste de Arrancada & Desempenho (Drag Meter / 0-100 km/h)
+    private val performanceMeter = PerformanceMeter()
+    private val _performanceRun = MutableStateFlow(PerformanceRun())
+    val performanceRun: StateFlow<PerformanceRun> = _performanceRun.asStateFlow()
+
+    private val _dragMeterState = MutableStateFlow(DragMeterState.READY_WAITING_LAUNCH)
+    val dragMeterState: StateFlow<DragMeterState> = _dragMeterState.asStateFlow()
+
+    // Gerenciador de Combustível Flex Fuel (A/F Etanol vs Gasolina)
+    private var flexFuelManager = FlexFuelManager(currentConnection)
+    private val _flexFuelStatus = MutableStateFlow(FlexFuelStatus())
+    val flexFuelStatus: StateFlow<FlexFuelStatus> = _flexFuelStatus.asStateFlow()
+
+    // Gerenciador de Licenças PRO / Comercial
+    private val licenseManager = LicenseManager(application)
+    private val _licenseState = MutableStateFlow(licenseManager.getLicense())
+    val licenseState: StateFlow<LicenseState> = _licenseState.asStateFlow()
+
+    // Modo HUD (Head-Up Display)
+    private val _isHudMode = MutableStateFlow(false)
+    val isHudMode: StateFlow<Boolean> = _isHudMode.asStateFlow()
 
     // Estado do Simulador
     private val _isSimulatorActive = MutableStateFlow(false)
@@ -376,6 +411,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     _sensors.value = updated
 
+                    // Atualiza o medidor de arrancada (0-100 km/h)
+                    val currentSpeed = updated.find { it.id == "speed" }?.currentValue ?: 0f
+                    val run = performanceMeter.updateSpeed(currentSpeed)
+                    _performanceRun.value = run
+                    _dragMeterState.value = performanceMeter.state
+
                     // Grava instantâneo no Datalogger se ativo
                     if (_isDatalogging.value) {
                         telemetryLogger.logSnapshot(updated)
@@ -522,6 +563,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 _proxiStatusMessage.value = "❌ Falha no alinhamento: ${result.exceptionOrNull()?.message}"
             }
+        }
+    }
+
+    // Gerador de Laudo em PDF
+    fun generatePdfReport(
+        workshopName: String = "OFICINA MECÂNICA ESPECIALIZADA",
+        technicianName: String = "Técnico Especialista",
+        clientPlate: String = "ABC-1234",
+        odometerKm: String = "142.500 km"
+    ) {
+        viewModelScope.launch {
+            val res = pdfReportGenerator.generateDiagnosticReport(
+                vehicle = _selectedVehicle.value,
+                ecuName = _selectedEcu.value?.name ?: "Central de Injeção Principal",
+                faults = _dtcFaults.value,
+                sensors = _sensors.value,
+                workshopName = workshopName,
+                technicianName = technicianName,
+                clientPlate = clientPlate,
+                odometerKm = odometerKm
+            )
+            if (res.isSuccess) {
+                val file = res.getOrThrow()
+                _lastGeneratedPdf.value = file
+                pdfReportGenerator.sharePdfReport(file)
+            }
+        }
+    }
+
+    fun shareLastPdf() {
+        _lastGeneratedPdf.value?.let { pdfReportGenerator.sharePdfReport(it) }
+    }
+
+    // Controle de Modo HUD (Head-Up Display)
+    fun toggleHudMode() {
+        _isHudMode.value = !_isHudMode.value
+    }
+
+    // Controle do Medidor de Arrancada
+    fun resetPerformanceMeter() {
+        performanceMeter.reset()
+        _performanceRun.value = PerformanceRun()
+        _dragMeterState.value = DragMeterState.READY_WAITING_LAUNCH
+    }
+
+    // Controle de Mistura A/F Flex Fuel
+    fun forceGasolineAf() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Gravando calibração para Gasolina (A/F 13.2)..."
+            val res = flexFuelManager.forceGasolineAf()
+            _actuatorTestMessage.value = if (res.isSuccess) res.getOrThrow() else "❌ Falha: ${res.exceptionOrNull()?.message}"
+            _flexFuelStatus.value = flexFuelManager.parseAfRatio(13.2f)
+        }
+    }
+
+    fun forceEthanolAf() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Gravando calibração para Etanol (A/F 9.0)..."
+            val res = flexFuelManager.forceEthanolAf()
+            _actuatorTestMessage.value = if (res.isSuccess) res.getOrThrow() else "❌ Falha: ${res.exceptionOrNull()?.message}"
+            _flexFuelStatus.value = flexFuelManager.parseAfRatio(9.0f)
+        }
+    }
+
+    fun resetFuelAdaptation() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Resetando aprendizado de combustível..."
+            val res = flexFuelManager.resetFuelAdaptation()
+            _actuatorTestMessage.value = if (res.isSuccess) res.getOrThrow() else "❌ Falha: ${res.exceptionOrNull()?.message}"
+        }
+    }
+
+    // Ativação de Licença PRO
+    fun activateLicense(key: String, name: String = "Oficina VIP") {
+        val success = licenseManager.activateKey(key, name)
+        if (success) {
+            _licenseState.value = licenseManager.getLicense()
         }
     }
 }

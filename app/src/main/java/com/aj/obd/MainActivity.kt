@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.SettingsInputAntenna
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -29,10 +31,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.aj.obd.ui.MainViewModel
 import com.aj.obd.ui.components.UpdateDialog
+import com.aj.obd.ui.screens.CableGuideScreen
 import com.aj.obd.ui.screens.ConnectionScreen
 import com.aj.obd.ui.screens.DashboardScreen
 import com.aj.obd.ui.screens.DiagnosticsScreen
 import com.aj.obd.ui.screens.HomeScreen
+import com.aj.obd.ui.screens.PerformanceScreen
 import com.aj.obd.ui.screens.ProxiScreen
 import com.aj.obd.ui.theme.AmberGlow
 import com.aj.obd.ui.theme.CarbonDark
@@ -44,9 +48,10 @@ import com.aj.obd.ui.theme.TextSecondary
 enum class Screen(val title: String, val icon: ImageVector) {
     HOME("Início", Icons.Default.DirectionsCar),
     DASHBOARD("Cockpit", Icons.Default.Speed),
+    PERFORMANCE("0-100", Icons.Default.Timer),
     DIAGNOSTICS("Falhas", Icons.Default.Warning),
-    PROXI("Proxi", Icons.Default.Build),
-    CONNECTION("Conexão", Icons.Default.SettingsInputAntenna)
+    CABLES("Cabos", Icons.Default.Cable),
+    PROXI("Proxi", Icons.Default.Build)
 }
 
 class MainActivity : ComponentActivity() {
@@ -121,12 +126,15 @@ fun MainApp(viewModel: MainViewModel) {
                     onNavigateToDashboard = { currentScreen = Screen.DASHBOARD },
                     onNavigateToDtc = { currentScreen = Screen.DIAGNOSTICS },
                     onNavigateToProxi = { currentScreen = Screen.PROXI },
-                    onNavigateToConnection = { currentScreen = Screen.CONNECTION }
+                    onNavigateToPerformance = { currentScreen = Screen.PERFORMANCE },
+                    onNavigateToCables = { currentScreen = Screen.CABLES },
+                    onNavigateToConnection = { /* Abre modal ou seletor de conexão */ }
                 )
                 Screen.DASHBOARD -> DashboardScreen(viewModel = viewModel)
+                Screen.PERFORMANCE -> PerformanceScreen(viewModel = viewModel)
                 Screen.DIAGNOSTICS -> DiagnosticsScreen(viewModel = viewModel)
+                Screen.CABLES -> CableGuideScreen()
                 Screen.PROXI -> ProxiScreen(viewModel = viewModel)
-                Screen.CONNECTION -> ConnectionScreen(viewModel = viewModel)
             }
         }
     }

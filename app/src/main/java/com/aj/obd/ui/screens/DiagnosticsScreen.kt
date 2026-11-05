@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.LocalGasStation
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
@@ -70,6 +72,7 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
     val selectedEcu by viewModel.selectedEcu.collectAsState()
     val actuatorMsg by viewModel.actuatorTestMessage.collectAsState()
     val autoDetectStatus by viewModel.autoDetectStatus.collectAsState()
+    val flexFuelStatus by viewModel.flexFuelStatus.collectAsState()
 
     var selectedTab by remember { mutableStateOf(0) } // 0: DTCs, 1: Atuadores & Procedimentos
 
@@ -167,6 +170,20 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
                 }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Botão Gerar Laudo Técnico em PDF
+            OutlinedButton(
+                onClick = { viewModel.generatePdfReport() },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Gerar Laudo Técnico em PDF (WhatsApp / Oficina)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+
             Spacer(modifier = Modifier.height(14.dp))
 
             if (dtcs.isEmpty()) {
@@ -233,6 +250,62 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
                 }
 
                 // Procedimento Especial: Reset Autoadaptativo (Marelli 4AF/4EF/59F)
+                item {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LocalGasStation, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Ajuste Forçado de Combustível A/F (Flex)",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Mistura atual detectada: %.1f : 1 (%s)".format(flexFuelStatus.currentAfRatio, flexFuelStatus.statusDescription),
+                                color = ElectricCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Evite problemas de partida a frio quando a central perde o aprendizado após abastecer com Etanol ou Gasolina.",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { viewModel.forceGasolineAf() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Forçar Gasolina (13.2)", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = { viewModel.forceEthanolAf() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = TelemetryGreen, contentColor = Color.Black),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Forçar Etanol (9.0)", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Procedimento Especial: Reset Geral dos Autoadaptativos
                 item {
                     Card(
                         shape = RoundedCornerShape(10.dp),

@@ -21,12 +21,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,6 +83,8 @@ fun HomeScreen(
     onNavigateToDashboard: () -> Unit,
     onNavigateToDtc: () -> Unit,
     onNavigateToProxi: () -> Unit,
+    onNavigateToPerformance: () -> Unit,
+    onNavigateToCables: () -> Unit,
     onNavigateToConnection: () -> Unit
 ) {
     val selectedVehicle by viewModel.selectedVehicle.collectAsState()
@@ -88,6 +92,7 @@ fun HomeScreen(
     val connState by viewModel.connectionState.collectAsState()
     val autoDetectStatus by viewModel.autoDetectStatus.collectAsState()
     val isAutoDetecting by viewModel.isAutoDetecting.collectAsState()
+    val licenseState by viewModel.licenseState.collectAsState()
 
     var showVehicleSelectorSheet by remember { mutableStateOf(false) }
     var showEcuSelectorSheet by remember { mutableStateOf(false) }
@@ -115,14 +120,29 @@ fun HomeScreen(
                         .clip(RoundedCornerShape(10.dp))
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = "OBD AJ",
-                        color = AmberGlow,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "OBD AJ",
+                            color = AmberGlow,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(AmberGlow, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "PRO",
+                                color = Color.Black,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
                     Text(
                         text = "Scanner & Diagnóstico Automotivo Especializado",
                         color = TextSecondary,
@@ -408,15 +428,15 @@ fun HomeScreen(
             ) {
                 QuickActionCard(
                     title = "Cockpit",
-                    subtitle = "Gauges & Sensores",
+                    subtitle = "Gauges & HUD",
                     icon = Icons.Default.Speed,
                     tint = AmberGlow,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToDashboard
                 )
                 QuickActionCard(
-                    title = "Falhas DTC",
-                    subtitle = "Leitura & Apagar",
+                    title = "Falhas & Laudo",
+                    subtitle = "DTC & PDF",
                     icon = Icons.Default.Warning,
                     tint = RacingRed,
                     modifier = Modifier.weight(1f),
@@ -424,11 +444,33 @@ fun HomeScreen(
                 )
                 QuickActionCard(
                     title = "Proxi Fácil",
-                    subtitle = "Ativações FCA",
+                    subtitle = "Ativações BCM",
                     icon = Icons.Default.Build,
                     tint = ElectricCyan,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToProxi
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                QuickActionCard(
+                    title = "Arrancada",
+                    subtitle = "0-100 & Drag",
+                    icon = Icons.Default.Timer,
+                    tint = TelemetryGreen,
+                    modifier = Modifier.weight(1f),
+                    onClick = onNavigateToPerformance
+                )
+                QuickActionCard(
+                    title = "Cabos Fiat",
+                    subtitle = "Pinos A1/A2/A3",
+                    icon = Icons.Default.Cable,
+                    tint = Color(0xFFAB47BC),
+                    modifier = Modifier.weight(1f),
+                    onClick = onNavigateToCables
                 )
             }
         }

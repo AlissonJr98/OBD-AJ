@@ -18,8 +18,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
@@ -39,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
 
     val isDatalogging by viewModel.isDatalogging.collectAsState()
     val lastLogFile by viewModel.lastLogFile.collectAsState()
+    val isHudMode by viewModel.isHudMode.collectAsState()
 
     val rpmSensor = sensors.find { it.id == "rpm" }
     val speedSensor = sensors.find { it.id == "speed" }
@@ -82,6 +86,69 @@ fun DashboardScreen(viewModel: MainViewModel) {
     val isEngineRunning = (rpmSensor?.currentValue ?: 0f) > 400f
     val isOverheating = isConnected && (coolantSensor?.currentValue ?: 0f) >= 102f
     val isLowBattery = isConnected && isEngineRunning && (batterySensor?.currentValue ?: 0f) in 0.1f..11.8f
+
+    if (isHudMode) {
+        // === MODO HUD (HEAD-UP DISPLAY) PARA REFLEXO NO PARA-BRISA ===
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .graphicsLayer { scaleX = -1f } // Espelha horizontalmente para ficar legível no vidro
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "%.0f".format(speedSensor?.currentValue ?: 0f),
+                    color = TelemetryGreen,
+                    fontSize = 110.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "KM/H",
+                    color = TelemetryGreen.copy(alpha = 0.8f),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp
+                )
+
+                Spacer(modifier = Modifier.height(30.dp))
+
+                Text(
+                    text = "%.0f RPM  •  %.0f°C".format(
+                        rpmSensor?.currentValue ?: 0f,
+                        coolantSensor?.currentValue ?: 0f
+                    ),
+                    color = AmberGlow,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Spacer(modifier = Modifier.height(40.dp))
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceVariantDark)
+                        .clickable { viewModel.toggleHudMode() }
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        text = "Sair do Modo HUD",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        return
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -115,6 +182,23 @@ fun DashboardScreen(viewModel: MainViewModel) {
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Botão Modo HUD (Para-brisa)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceVariantDark)
+                            .clickable { viewModel.toggleHudMode() }
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Flip,
+                            contentDescription = "Modo HUD Para-brisa",
+                            tint = ElectricCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
                     // Botão Pausar / Retomar
                     Box(
                         modifier = Modifier
