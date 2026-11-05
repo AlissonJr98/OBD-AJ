@@ -14,20 +14,44 @@ data class AdapterInfo(
 class Elm327Driver(private val connection: ObdConnection) {
 
     suspend fun handshake(): Result<AdapterInfo> {
-        // Reset rápido do chip ELM/STN
-        connection.sendRawCommand("ATWS")
-        val atz = connection.sendRawCommand("ATZ").getOrDefault("")
-        delay(350) // Aguarda o microcontrolador do ELM327 inicializar o clock após o reset
+        // Envia ATZ para reiniciar o chip ELM/STN
+        val atzRes = connection.sendRawCommand("ATZ", timeoutMs = 2000)
+        delay(400) // Aguarda o microcontrolador do ELM327 inicializar o clock após o reset
 
-        // Desliga eco, espaços e quebras de linha extras
-        connection.sendRawCommand("ATE0")
-        connection.sendRawCommand("ATL0")
-        connection.sendRawCommand("ATS0")
-        connection.sendRawCommand("ATH0") // Headers desligados para leitura direta e veloz dos PIDs
-        connection.sendRawCommand("ATSP0") // Protocolo Automático OBD-II por padrão (compatível com todos os carros)
+        // Desliga eco
+        val ateRes = connection.sendRawCommand("ATE0", timeoutMs = 1500)
+        
+        val atz = atzRes.getOrDefault("")
+        val ate = ateRes.getOrDefault("")
+        val atiRes = connection.sendRawCommand("ATI", timeoutMs = 1500)
+        val ati = atiRes.getOrDefault("")
 
-        // Lê versão do firmware e tensão da bateria
-        val atiRes = connection.sendRawCommand("ATI").getOrDefault(atz)
+        // Validação REAL de hardware:
+        // Se o chip Bluetooth não for um ELM/OBD ou não respondeu a nenhum dos 3 comandos, a conexão é falsa/nula!
+        val combined = "$atz\n$ate\n$ati".uppercase()
+        val isValidElm = combined.contains("ELM") || 
+                         combined.contains("OBD") || 
+                         combined.contains("OK") || 
+                         combined.contains("V1.") || 
+                         combined.contains("V2.") ||
+                         combined.contains("STN") ||
+                         combined.contains("?")
+
+        if (!isValidElm && combined.isBlank()) {
+            return Result.failure(
+                IllegalStateException("O scanner Bluetooth não respondeu aos comandos ELM327. Certifique-se de que o adaptador está conectado à tomada do carro e com a chave na posição Ligada.")
+            )
+        }
+
+        // Configurações de alta velocidade e compatibilidade universal (inspiradas no Car Scanner)
+        connection.sendRawCommand("ATL0")  // Desativa line feeds extras
+        connection.sendRawCommand("ATS0")  // Desativa espaços para economizar largura de banda
+        connection.sendRawCommand("ATH0")  // Headers desligados para leitura rápida dos PIDs
+        connection.sendRawCommand("ATAT1") // Adaptive Timing nível 1 (ajuste inteligente de clock)
+        connection.sendRawCommand("ATST32") // Timeout dinâmico calibrado para alta velocidade (32 x 4ms = 128ms)
+        connection.sendRawCommand("ATSP0") // Auto-busca universal de protocolo OBD-II
+
+        // Lê versão do firmware e tensão da bateria na porta OBD (pino 16)
         val voltage = connection.readBatteryVoltage()
 
         // Teste de capacidade ST (OBDLink / vLinker)
@@ -36,16 +60,22 @@ class Elm327Driver(private val connection: ObdConnection) {
 
         val adapterType = when {
             isStn -> AdapterType.OBD_LINK_GENUINE
-            atiRes.contains("vLinker", ignoreCase = true) -> AdapterType.V_LINKER_MC
-            atiRes.contains("ELM327 v1.4", ignoreCase = true) || atiRes.contains("v1.5", ignoreCase = true) -> AdapterType.ELM327_V14_GENUINE
-            atiRes.contains("v2.1", ignoreCase = true) -> AdapterType.ELM327_CLONE_BAD
+            ati.contains("vLinker", ignoreCase = true) -> AdapterType.V_LINKER_MC
+            ati.contains("ELM327 v1.4", ignoreCase = true) || ati.contains("v1.5", ignoreCase = true) -> AdapterType.ELM327_V14_GENUINE
+            ati.contains("v2.1", ignoreCase = true) -> AdapterType.ELM327_CLONE_BAD
             else -> AdapterType.ELM327_V14_GENUINE
+        }
+
+        val versionText = if (isStn) {
+            stRes.lines().firstOrNull() ?: ati
+        } else {
+            ati.lines().firstOrNull() ?: atz.lines().firstOrNull() ?: "ELM327 v1.5"
         }
 
         return Result.success(
             AdapterInfo(
                 type = adapterType,
-                version = if (isStn) stRes.lines().firstOrNull() ?: atiRes else atiRes.lines().firstOrNull() ?: "ELM327",
+                version = versionText,
                 voltage = voltage,
                 isHighSpeedCapable = isStn || adapterType == AdapterType.V_LINKER_MC
             )
@@ -62,6 +92,7 @@ class Elm327Driver(private val connection: ObdConnection) {
                 connection.sendRawCommand("ATSP0")  // Auto-busca do protocolo correto da ECU (CAN / KWP / ISO)
                 connection.sendRawCommand("ATH0")   // Respostas limpas sem cabeçalho
                 connection.sendRawCommand("ATAT1")
+                connection.sendRawCommand("ATST32")
             }
             ProtocolType.CAN_11BIT_500K -> {
                 connection.sendRawCommand("ATSP6")  // ISO 15765-4 CAN (11 bit, 500 kbaud)

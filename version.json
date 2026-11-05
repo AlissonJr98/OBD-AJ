@@ -1,7 +1,7 @@
 {
-  "versionCode": 11,
-  "versionName": "1.2.8",
-  "title": "OBD AJ v1.2.8 - Atualização 100% In-App & Correções de Leitura",
-  "notes": "• Atualização 100% Direta no App: Baixa o APK sem sair para o navegador com barra de progresso em tempo real e abre o instalador nativo do Android automaticamente.\n• Correção Crítica na Leitura de Sensores: Parsers com busca flexível de substring e auto-busca universal de protocolo OBD-II (compatível com clones ELM327 Bluetooth v1.5/v2.1).\n• Leitura e Limpeza Universal de DTC (Modo 03 e Modo 04 padrão OBD-II) para todos os veículos.\n• Drenagem automática do buffer Bluetooth para evitar perda de sincronia.",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.8/OBD-AJ-v1.2.8.apk"
+  "versionCode": 12,
+  "versionName": "1.2.9",
+  "title": "OBD AJ v1.2.9 - Conexão Real Bluetooth ELM327 (AlfaOBD & Car Scanner)",
+  "notes": "• Correção da Conexão Bluetooth: Implementado o mesmo pipeline de 4 estratégias (SPP padrão, SPP inseguro, porta RFCOMM 1 direta e porta 1 insegura) utilizado no AlfaOBD e Car Scanner.\n• Fim das 'Conexões Falsas': O aplicativo agora valida ativamente a resposta real do microcontrolador ELM327 (ATZ/ATE0/ATI) antes de considerar o scanner conectado.\n• Buffer e Streams Nativos de Alta Velocidade: Leitura direta em ASCII sem buffers intermediários com timeout calibrado ATST32.\n• Cancelamento obrigatório de discovery antes do pareamento para máxima estabilidade do link Bluetooth.",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.9/OBD-AJ-v1.2.9.apk"
 }

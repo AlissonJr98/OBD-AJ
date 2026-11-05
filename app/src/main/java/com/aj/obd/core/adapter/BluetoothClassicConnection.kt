@@ -6,26 +6,28 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import java.io.BufferedReader
-import java.io.BufferedWriter
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
+import java.util.concurrent.TimeoutException
 
 class BluetoothClassicConnection(
     private val context: Context,
     private val bluetoothAdapter: BluetoothAdapter?
 ) : ObdConnection {
 
+    // UUID SPP padrão (Serial Port Profile) para dispositivos RFCOMM
     private val sppUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private var socket: BluetoothSocket? = null
-    private var reader: BufferedReader? = null
-    private var writer: BufferedWriter? = null
+    private var inputStream: InputStream? = null
+    private var outputStream: OutputStream? = null
 
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val state: StateFlow<ConnectionState> = _state.asStateFlow()
@@ -37,136 +39,166 @@ class BluetoothClassicConnection(
             return@withContext false
         }
 
+        disconnect() // Limpa conexões e sockets anteriores
+
+        val device: BluetoothDevice = try {
+            bluetoothAdapter.getRemoteDevice(address)
+        } catch (e: Exception) {
+            _state.value = ConnectionState.Error("Endereço Bluetooth inválido: $address")
+            return@withContext false
+        }
+
+        val devName = device.name ?: address
+        _state.value = ConnectionState.Connecting(devName, "Preparando canal Bluetooth...")
+
+        // Cancela descoberta ativa para liberar toda a largura de banda e rádio Bluetooth
         try {
-            val device: BluetoothDevice = bluetoothAdapter.getRemoteDevice(address)
-            _state.value = ConnectionState.Connecting(device.name ?: address, "Criando Socket SPP...")
-
             bluetoothAdapter.cancelDiscovery()
-            var isConnected = false
-            var lastSocketException: Exception? = null
+        } catch (_: Exception) {}
 
-            // 1ª Tentativa: Standard RFCOMM SPP UUID
+        var connectedSocket: BluetoothSocket? = null
+        var lastError: Exception? = null
+
+        // 4 Estratégias de Conexão idênticas ao AlfaOBD e Car Scanner
+        val strategies = listOf(
+            "Canal SPP Padrão" to {
+                device.createRfcommSocketToServiceRecord(sppUuid)
+            },
+            "Canal SPP Inseguro" to {
+                device.createInsecureRfcommSocketToServiceRecord(sppUuid)
+            },
+            "Porta RFCOMM 1 Direta" to {
+                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                m.invoke(device, 1) as BluetoothSocket
+            },
+            "Porta RFCOMM 1 Insegura" to {
+                val m = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+                m.invoke(device, 1) as BluetoothSocket
+            }
+        )
+
+        for ((strategyName, socketFactory) in strategies) {
             try {
-                socket = device.createRfcommSocketToServiceRecord(sppUuid)
-                socket?.connect()
-                isConnected = true
-            } catch (e1: Exception) {
-                lastSocketException = e1
+                _state.value = ConnectionState.Connecting(devName, "Conectando via $strategyName...")
+                val sock = socketFactory()
+                sock.connect()
+
+                if (sock.isConnected) {
+                    socket = sock
+                    inputStream = sock.inputStream
+                    outputStream = sock.outputStream
+
+                    _state.value = ConnectionState.Connecting(devName, "Validando resposta do ELM327...")
+
+                    // Drena e limpa a linha UART
+                    try {
+                        outputStream?.write("\r\r\r".toByteArray(Charsets.US_ASCII))
+                        outputStream?.flush()
+                    } catch (_: Exception) {}
+                    delay(150)
+
+                    val driver = Elm327Driver(this@BluetoothClassicConnection)
+                    val handshakeRes = driver.handshake()
+
+                    if (handshakeRes.isSuccess) {
+                        val info = handshakeRes.getOrThrow()
+                        connectedSocket = sock
+                        _state.value = ConnectionState.Connected(
+                            deviceName = devName,
+                            adapterType = info.type,
+                            firmwareVersion = info.version,
+                            batteryVoltage = info.voltage,
+                            isHighSpeedCapable = info.isHighSpeedCapable
+                        )
+                        return@withContext true
+                    } else {
+                        // O socket conectou no rádio, mas o chip ELM não respondeu
+                        lastError = handshakeRes.exceptionOrNull() as? Exception
+                            ?: IllegalStateException("Chip ELM327 não respondeu")
+                        try { sock.close() } catch (_: Exception) {}
+                        socket = null
+                        inputStream = null
+                        outputStream = null
+                    }
+                }
+            } catch (e: Exception) {
+                lastError = e
                 try { socket?.close() } catch (_: Exception) {}
                 socket = null
+                inputStream = null
+                outputStream = null
             }
-
-            // 2ª Tentativa: Reflection RFCOMM no canal 1 (essencial para clones chineses ELM327)
-            if (!isConnected) {
-                _state.value = ConnectionState.Connecting(device.name ?: address, "Tentando canal alternativo RFCOMM...")
-                try {
-                    val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                    socket = m.invoke(device, 1) as BluetoothSocket
-                    socket?.connect()
-                    isConnected = true
-                } catch (e2: Exception) {
-                    lastSocketException = e2
-                    try { socket?.close() } catch (_: Exception) {}
-                    socket = null
-                }
-            }
-
-            // 3ª Tentativa: Insecure RFCOMM Socket
-            if (!isConnected) {
-                try {
-                    socket = device.createInsecureRfcommSocketToServiceRecord(sppUuid)
-                    socket?.connect()
-                    isConnected = true
-                } catch (e3: Exception) {
-                    lastSocketException = e3
-                    try { socket?.close() } catch (_: Exception) {}
-                    socket = null
-                }
-            }
-
-            if (!isConnected || socket == null) {
-                throw lastSocketException ?: IllegalStateException("Não foi possível estabelecer conexão RFCOMM com o scanner.")
-            }
-
-            reader = BufferedReader(InputStreamReader(socket!!.inputStream))
-            writer = BufferedWriter(OutputStreamWriter(socket!!.outputStream))
-
-            _state.value = ConnectionState.Connecting(device.name ?: address, "Inicializando Chipset ELM327...")
-            val driver = Elm327Driver(this@BluetoothClassicConnection)
-            val initResult = driver.handshake()
-
-            if (initResult.isSuccess) {
-                val info = initResult.getOrThrow()
-                _state.value = ConnectionState.Connected(
-                    deviceName = device.name ?: address,
-                    adapterType = info.type,
-                    firmwareVersion = info.version,
-                    batteryVoltage = info.voltage,
-                    isHighSpeedCapable = info.isHighSpeedCapable
-                )
-                true
-            } else {
-                _state.value = ConnectionState.Error("Falha na inicialização do adaptador: ${initResult.exceptionOrNull()?.message}")
-                disconnect()
-                false
-            }
-        } catch (e: Exception) {
-            _state.value = ConnectionState.Error("Erro ao conectar: ${e.localizedMessage}")
-            disconnect()
-            false
         }
+
+        val msg = lastError?.localizedMessage ?: "Não foi possível comunicar com o chip ELM327."
+        _state.value = ConnectionState.Error("Falha de conexão: $msg. Certifique-se de que o scanner está bem plugado no carro e com o LED aceso.")
+        disconnect()
+        false
     }
 
     override suspend fun disconnect() = withContext(Dispatchers.IO) {
         try {
-            reader?.close()
-            writer?.close()
+            inputStream?.close()
+        } catch (_: Exception) {}
+        try {
+            outputStream?.close()
+        } catch (_: Exception) {}
+        try {
             socket?.close()
         } catch (_: Exception) {}
-        reader = null
-        writer = null
+        inputStream = null
+        outputStream = null
         socket = null
         _state.value = ConnectionState.Disconnected
     }
 
     override suspend fun sendRawCommand(cmd: String, timeoutMs: Long): Result<String> = withContext(Dispatchers.IO) {
-        val w = writer ?: return@withContext Result.failure(IllegalStateException("Não conectado"))
-        val r = reader ?: return@withContext Result.failure(IllegalStateException("Não conectado"))
+        val inStream = inputStream ?: return@withContext Result.failure(IOException("Não conectado"))
+        val outStream = outputStream ?: return@withContext Result.failure(IOException("Não conectado"))
 
         try {
-            withTimeout(timeoutMs) {
-                // Drena bytes pendentes para garantir resposta fresca e sincronizada
-                try {
-                    while ((socket?.inputStream?.available() ?: 0) > 0) {
-                        socket?.inputStream?.read()
-                    }
-                } catch (_: Exception) {}
+            // Drena bytes residuais do buffer de entrada para evitar respostas antigas
+            while (inStream.available() > 0) {
+                inStream.read()
+            }
 
-                // Envia comando terminado em Carriage Return (\r)
-                w.write(cmd + "\r")
-                w.flush()
+            // Envia o comando ASCII terminado em Carriage Return (\r)
+            val bytes = (cmd.trim() + "\r").toByteArray(Charsets.US_ASCII)
+            outStream.write(bytes)
+            outStream.flush()
 
-                val buffer = StringBuilder()
-                var c: Int
-                while (true) {
-                    c = r.read()
-                    if (c == -1) break
-                    val ch = c.toChar()
-                    if (ch == '>') { // Prompt pronto do ELM
+            val responseBuffer = ByteArrayOutputStream()
+            val startTime = System.currentTimeMillis()
+            var charRead: Int
+
+            // Lê byte a byte até o caractere de prompt '>' do ELM ou estourar o timeout
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                if (inStream.available() > 0) {
+                    charRead = inStream.read()
+                    if (charRead == -1) break
+                    val ch = charRead.toChar()
+                    if (ch == '>') {
                         break
                     }
-                    buffer.append(ch)
+                    responseBuffer.write(charRead)
+                } else {
+                    delay(4) // Cede processamento de coroutine enquanto aguarda o rádio BT
                 }
-
-                val clean = buffer.toString()
-                    .replace("\r", "\n")
-                    .lines()
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() && !it.equals(cmd, ignoreCase = true) }
-                    .joinToString("\n")
-
-                Result.success(clean)
             }
+
+            val raw = responseBuffer.toString(Charsets.US_ASCII.name())
+            val clean = raw
+                .replace("\r", "\n")
+                .lines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.equals(cmd.trim(), ignoreCase = true) }
+                .joinToString("\n")
+
+            if (clean.isBlank() && System.currentTimeMillis() - startTime >= timeoutMs) {
+                return@withContext Result.failure(TimeoutException("Timeout aguardando resposta de '$cmd'"))
+            }
+
+            Result.success(clean)
         } catch (e: Exception) {
             Result.failure(e)
         }
