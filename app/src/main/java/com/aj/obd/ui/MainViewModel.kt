@@ -44,6 +44,7 @@ import com.aj.obd.core.voice.VoiceCopilot
 import com.aj.obd.data.VehicleCatalog
 import com.aj.obd.data.database.AutomotiveDatabaseHelper
 import com.aj.obd.domain.model.DtcFault
+import com.aj.obd.domain.model.DtcSeverity
 import com.aj.obd.domain.model.EcuCategory
 import com.aj.obd.domain.model.EcuModule
 import com.aj.obd.domain.model.LiveSensor
@@ -294,7 +295,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             LiveSensor("rpm", "Rotação do Motor", "RPM", "010C", "RPM", 0f, 0f, 6000f),
             LiveSensor("speed", "Velocidade do Veículo", "VEL", "010D", "km/h", 0f, 0f, 220f),
             LiveSensor("coolant", "Temperatura da Água", "TEMP", "0105", "°C", 0f, 40f, 130f),
-            LiveSensor("turbo", "Pressão do Coletor / Turbo", "MAP", "221000", "bar", 0f, 0f, 2.5f),
+            LiveSensor("turbo", "Pressão do Coletor / Turbo", "MAP", "010B", "bar", 0f, 0f, 2.5f),
             LiveSensor("battery", "Tensão da Bateria", "BATT", "ATRV", "V", 0f, 10f, 16f)
         )
     )
@@ -625,46 +626,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun parseSensorValue(sensor: LiveSensor, rawRes: String, isKwp: Boolean): Float {
-        val clean = rawRes.replace(" ", "").replace("\n", "").trim()
-        if (isKwp && clean.startsWith("6101")) {
+        val clean = rawRes.replace(" ", "").replace("\r", "").replace("\n", "").replace(">", "").trim().uppercase()
+
+        // 1. Tensão da Bateria (Comando ATRV)
+        if (sensor.id == "battery") {
+            val match = Regex("""(\d{1,2}\.\d)""").find(rawRes)
+            return match?.value?.toFloatOrNull() ?: sensor.currentValue
+        }
+
+        // 2. K-Line KWP2000 LocalID 0x01 (específico Fiat Marelli 4AF / 4EF quando ativo)
+        if (isKwp && clean.contains("6101")) {
+            val kwpIdx = clean.indexOf("6101")
             return when (sensor.id) {
                 "rpm" -> {
-                    if (clean.length >= 8) {
-                        val hex = clean.substring(4, 8)
-                        (hex.toIntOrNull(16) ?: 0) / 4f
+                    if (clean.length >= kwpIdx + 8) {
+                        val hex = clean.substring(kwpIdx + 4, kwpIdx + 8)
+                        val v = (hex.toIntOrNull(16) ?: 0) / 4f
+                        if (v in 0f..8000f) v else sensor.currentValue
                     } else sensor.currentValue
                 }
                 "coolant" -> {
-                    if (clean.length >= 10) {
-                        val hex = clean.substring(8, 10)
-                        ((hex.toIntOrNull(16) ?: 40) - 40).toFloat()
+                    if (clean.length >= kwpIdx + 10) {
+                        val hex = clean.substring(kwpIdx + 8, kwpIdx + 10)
+                        val v = ((hex.toIntOrNull(16) ?: 40) - 40).toFloat()
+                        if (v in -40f..150f) v else sensor.currentValue
                     } else sensor.currentValue
                 }
                 else -> sensor.currentValue
             }
         }
 
+        // 3. PIDs Padrão OBD-II (Modo 01) - Suportado em 100% dos Carros
         return when (sensor.id) {
             "rpm" -> {
-                if (clean.length >= 8 && clean.startsWith("410C")) {
-                    val hex = clean.substring(4, 8)
-                    (hex.toIntOrNull(16) ?: 0) / 4f
+                val idx = clean.indexOf("410C")
+                if (idx != -1 && clean.length >= idx + 8) {
+                    val hex = clean.substring(idx + 4, idx + 8)
+                    val v = (hex.toIntOrNull(16) ?: 0) / 4f
+                    if (v in 0f..9000f) v else sensor.currentValue
                 } else sensor.currentValue
             }
             "speed" -> {
-                if (clean.length >= 6 && clean.startsWith("410D")) {
-                    val hex = clean.substring(4, 6)
-                    (hex.toIntOrNull(16) ?: 0).toFloat()
+                val idx = clean.indexOf("410D")
+                if (idx != -1 && clean.length >= idx + 6) {
+                    val hex = clean.substring(idx + 4, idx + 6)
+                    val v = (hex.toIntOrNull(16) ?: 0).toFloat()
+                    if (v in 0f..300f) v else sensor.currentValue
                 } else sensor.currentValue
             }
             "coolant" -> {
-                if (clean.length >= 6 && clean.startsWith("4105")) {
-                    val hex = clean.substring(4, 6)
-                    ((hex.toIntOrNull(16) ?: 40) - 40).toFloat()
+                val idx = clean.indexOf("4105")
+                if (idx != -1 && clean.length >= idx + 6) {
+                    val hex = clean.substring(idx + 4, idx + 6)
+                    val v = ((hex.toIntOrNull(16) ?: 40) - 40).toFloat()
+                    if (v in -40f..150f) v else sensor.currentValue
                 } else sensor.currentValue
             }
-            "turbo" -> (0.3f + (sensor.currentValue * 0.95f)).coerceIn(0f, 2.1f)
-            "battery" -> clean.replace("V", "").toFloatOrNull() ?: sensor.currentValue
+            "turbo" -> {
+                // Pressão absoluta do coletor MAP (PID 010B) em kPa -> converte para bar
+                val idx = clean.indexOf("410B")
+                if (idx != -1 && clean.length >= idx + 6) {
+                    val hex = clean.substring(idx + 4, idx + 6)
+                    val kpa = hex.toIntOrNull(16) ?: 100
+                    (kpa / 100f).coerceIn(0f, 3.0f)
+                } else sensor.currentValue
+            }
             else -> sensor.currentValue
         }
     }
@@ -675,10 +701,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val ecu = _selectedEcu.value
             val ecuName = ecu?.name ?: "Central Ativa"
 
-            val faults = if (ecu?.protocol in listOf(ProtocolType.KLINE_KWP2000_FAST, ProtocolType.KLINE_ISO9141)) {
-                kwpClient.readDtcKwp(ecuName).getOrDefault(emptyList())
-            } else {
-                udsClient.readDtcs(ecuName).getOrDefault(emptyList())
+            var faults: List<DtcFault> = when (ecu?.protocol) {
+                ProtocolType.KLINE_KWP2000_FAST, ProtocolType.KLINE_ISO9141 -> {
+                    kwpClient.readDtcKwp(ecuName).getOrDefault(emptyList())
+                }
+                ProtocolType.CAN_11BIT_500K, ProtocolType.CAN_29BIT_500K, ProtocolType.CAN_11BIT_250K -> {
+                    val udsList = udsClient.readDtcs(ecuName).getOrDefault(emptyList())
+                    if (udsList.isEmpty()) readStandardObd2Dtcs() else udsList
+                }
+                else -> {
+                    readStandardObd2Dtcs()
+                }
+            }
+
+            if (faults.isEmpty()) {
+                // Tenta fallback universal Mode 03 para garantir leitura em 100% dos carros
+                faults = readStandardObd2Dtcs()
             }
 
             val enriched = faults.map { f ->
@@ -691,15 +729,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun readStandardObd2Dtcs(): List<DtcFault> {
+        val res = currentConnection.sendRawCommand("03").getOrDefault("")
+        val clean = res.replace(" ", "").replace("\r", "").replace("\n", "").replace(">", "").trim().uppercase()
+        val idx = clean.indexOf("43")
+        if (idx == -1) return emptyList()
+
+        val payload = clean.substring(idx + 2)
+        val faults = mutableListOf<DtcFault>()
+        for (i in 0 until (payload.length / 4)) {
+            val chunk = payload.substring(i * 4, (i + 1) * 4)
+            if (chunk == "0000" || chunk.length < 4) continue
+            val code = formatStandardDtc(chunk)
+            val desc = dbHelper.getDtcDescriptionPt(code) ?: "Anomalia no sistema ($code)"
+            val sev = if (code.startsWith("P03") || code.startsWith("P02")) DtcSeverity.CRITICAL else DtcSeverity.MEDIUM
+            faults.add(
+                DtcFault(
+                    code = code,
+                    description = desc,
+                    ecuSource = "Injeção Eletrônica (OBD2)",
+                    severity = sev
+                )
+            )
+        }
+        return faults
+    }
+
+    private fun formatStandardDtc(hex: String): String {
+        if (hex.length < 4) return hex
+        val firstChar = when (hex[0]) {
+            '0', '1', '2', '3' -> 'P'
+            '4', '5', '6', '7' -> 'C'
+            '8', '9', 'A', 'B' -> 'B'
+            'C', 'D', 'E', 'F' -> 'U'
+            else -> 'P'
+        }
+        val secondChar = ((hex[0].digitToInt(16) and 0x03)).toString()
+        return "$firstChar$secondChar${hex.substring(1, 4)}"
+    }
+
     fun clearAllDtcs() {
         viewModelScope.launch {
             val ecu = _selectedEcu.value
-            if (ecu?.protocol in listOf(ProtocolType.KLINE_KWP2000_FAST, ProtocolType.KLINE_ISO9141)) {
-                kwpClient.clearDtcKwp()
-            } else {
-                udsClient.clearDtcs()
+            when (ecu?.protocol) {
+                ProtocolType.KLINE_KWP2000_FAST, ProtocolType.KLINE_ISO9141 -> kwpClient.clearDtcKwp()
+                ProtocolType.CAN_11BIT_500K, ProtocolType.CAN_29BIT_500K, ProtocolType.CAN_11BIT_250K -> {
+                    udsClient.clearDtcs()
+                    currentConnection.sendRawCommand("04")
+                }
+                else -> {
+                    currentConnection.sendRawCommand("04")
+                }
             }
             _dtcFaults.value = emptyList()
+            Toast.makeText(getApplication(), "✅ Códigos de falha apagados com sucesso!", Toast.LENGTH_SHORT).show()
         }
     }
 

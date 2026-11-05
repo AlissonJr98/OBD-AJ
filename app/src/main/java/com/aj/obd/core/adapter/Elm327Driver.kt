@@ -23,7 +23,8 @@ class Elm327Driver(private val connection: ObdConnection) {
         connection.sendRawCommand("ATE0")
         connection.sendRawCommand("ATL0")
         connection.sendRawCommand("ATS0")
-        connection.sendRawCommand("ATH1") // Ativa cabeçalhos para sabermos remetente e destinatário
+        connection.sendRawCommand("ATH0") // Headers desligados para leitura direta e veloz dos PIDs
+        connection.sendRawCommand("ATSP0") // Protocolo Automático OBD-II por padrão (compatível com todos os carros)
 
         // Lê versão do firmware e tensão da bateria
         val atiRes = connection.sendRawCommand("ATI").getOrDefault(atz)
@@ -57,6 +58,11 @@ class Elm327Driver(private val connection: ObdConnection) {
      */
     suspend fun configureForEcu(ecu: EcuModule): Result<Unit> {
         when (ecu.protocol) {
+            ProtocolType.OBD2_AUTO -> {
+                connection.sendRawCommand("ATSP0")  // Auto-busca do protocolo correto da ECU (CAN / KWP / ISO)
+                connection.sendRawCommand("ATH0")   // Respostas limpas sem cabeçalho
+                connection.sendRawCommand("ATAT1")
+            }
             ProtocolType.CAN_11BIT_500K -> {
                 connection.sendRawCommand("ATSP6")  // ISO 15765-4 CAN (11 bit, 500 kbaud)
                 connection.sendRawCommand("ATSH ${ecu.requestHeader}")

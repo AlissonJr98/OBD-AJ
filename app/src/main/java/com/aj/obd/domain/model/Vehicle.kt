@@ -54,6 +54,7 @@ data class EcuModule(
 )
 
 enum class ProtocolType {
+    OBD2_AUTO,
     CAN_11BIT_500K,
     CAN_29BIT_500K,
     CAN_11BIT_250K,

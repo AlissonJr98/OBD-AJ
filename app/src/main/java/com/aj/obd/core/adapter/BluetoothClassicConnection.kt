@@ -135,6 +135,13 @@ class BluetoothClassicConnection(
 
         try {
             withTimeout(timeoutMs) {
+                // Drena bytes pendentes para garantir resposta fresca e sincronizada
+                try {
+                    while ((socket?.inputStream?.available() ?: 0) > 0) {
+                        socket?.inputStream?.read()
+                    }
+                } catch (_: Exception) {}
+
                 // Envia comando terminado em Carriage Return (\r)
                 w.write(cmd + "\r")
                 w.flush()

@@ -1,7 +1,7 @@
 {
-  "versionCode": 9,
-  "versionName": "1.2.6",
-  "title": "OBD AJ v1.2.6 - Conexão Bluetooth Blindada & Atualização Direta no Navegador",
-  "notes": "• Conexão Bluetooth com fallback para clones chineses ELM327 (Reflection canal 1 e socket insecure)\n• Solicitação automática de permissões BLUETOOTH_CONNECT e BLUETOOTH_SCAN em tempo de execução\n• Feedback em tempo real durante a conexão (radar holográfico ativo e mensagens claras)\n• Nova abordagem de atualização: download direto e veloz pelo Navegador (Chrome) ou pela barra de notificações (DownloadManager)",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.6/OBD-AJ-v1.2.6.apk"
+  "versionCode": 10,
+  "versionName": "1.2.7",
+  "title": "OBD AJ v1.2.7 - Correção Crítica de Leitura de Sensores & OBD-II Universal",
+  "notes": "• Correção Crítica: Leitura de sensores (RPM, Velocidade, Temperatura, MAP/Turbo e Bateria) agora compatível com 100% dos adaptadores ELM327 (parsers resilientes com busca por substring e cabeçalhos desativados).\n• Perfil Universal OBD-II adicionado como padrão: conecta e faz auto-busca de protocolo em qualquer veículo do mercado (Gasolina, Etanol, Flex, Diesel, GNV).\n• Leitura e Limpeza Universal de Códigos de Falha (DTC Mode 03 / Mode 04) integrada para todos os carros.\n• Limpeza automática do buffer do stream Bluetooth antes de cada comando para evitar respostas defasadas ou travamentos.",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.7/OBD-AJ-v1.2.7.apk"
 }

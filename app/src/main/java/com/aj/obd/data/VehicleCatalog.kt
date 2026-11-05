@@ -11,6 +11,31 @@ object VehicleCatalog {
 
     val vehicles: List<Vehicle> = listOf(
         // =========================================================================
+        // UNIVERSAL / TODOS OS VEÍCULOS (PADRÃO GLOBAL OBD-II)
+        // =========================================================================
+        Vehicle(
+            id = "universal_obd2",
+            brand = "Universal",
+            name = "OBD-II Padrão (Todos os Carros)",
+            years = "1996 - 2026",
+            era = VehicleEra.ALL,
+            engineOptions = "Gasolina / Etanol / Flex / Diesel / GNV",
+            defaultEcuId = "universal_engine",
+            supportedEcus = listOf(
+                EcuModule(
+                    id = "universal_engine",
+                    name = "Injeção Eletrônica (OBD-II / EOBD)",
+                    category = EcuCategory.ENGINE,
+                    protocol = ProtocolType.OBD2_AUTO,
+                    requestHeader = "7DF",
+                    responseHeader = "7E8",
+                    adapterCable = AdapterCable.DIRECT,
+                    isDefault = true
+                )
+            )
+        ),
+
+        // =========================================================================
         // FIAT CLÁSSICOS & K-LINE (1996 - 2007) - DESTAQUE ESPECIAL PALIO 2001
         // =========================================================================
         Vehicle(
