@@ -305,6 +305,127 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
                     }
                 }
 
+                // Procedimento Especial: Reset de Revisão (Chave de Boca) & Troca de Óleo
+                item {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Build, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Reset de Revisão & Troca de Óleo (Painel)",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Apague a luz da 'chave de boca' no painel de instrumentos após realizar a revisão e redefina o contador de degradação do óleo lubrificante para 100% novo.",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { viewModel.resetServiceInterval() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Reset Chave de Boca", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = { viewModel.resetOilDegradation() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Color.Black),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Reset Óleo 100%", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Procedimento Especial: Calibração Robótica Dualogic / GSR
+                item {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.FlashOn, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Câmbio Dualogic / GSR (Marelli CFC)",
+                                        color = TextPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "Especial Fiat",
+                                    color = ElectricCyan,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Calibre o ponto de engate da embreagem (Kiss-Point) para eliminar trancos na saída e marchas. Realize sangria antes da troca do fluido Tutela CS Speed e zere o desgaste da embreagem.",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { viewModel.calibrateDualogicClutch() },
+                                colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(text = "Calibrar Embreagem (Kiss-Point)", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { viewModel.bleedDualogicHydraulics() },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Sangria Hidráulica", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.resetDualogicClutchDegradation() },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TelemetryGreen),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "Zerar Desgaste", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Procedimento Especial: Reset Geral dos Autoadaptativos
                 item {
                     Card(

@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FiberManualRecord
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.aj.obd.core.adapter.ConnectionState
 import com.aj.obd.ui.MainViewModel
 import com.aj.obd.ui.components.CircularGauge
+import com.aj.obd.ui.components.LambdaOscilloscopeView
 import com.aj.obd.ui.components.ShiftLightBar
 import com.aj.obd.ui.theme.AmberGlow
 import com.aj.obd.ui.theme.CarbonDark
@@ -75,6 +79,10 @@ fun DashboardScreen(viewModel: MainViewModel) {
     val isDatalogging by viewModel.isDatalogging.collectAsState()
     val lastLogFile by viewModel.lastLogFile.collectAsState()
     val isHudMode by viewModel.isHudMode.collectAsState()
+    val voiceCopilotEnabled by viewModel.voiceCopilotEnabled.collectAsState()
+    val tripStats by viewModel.tripStats.collectAsState()
+    val lambdaHistory by viewModel.lambdaHistory.collectAsState()
+    val currentLambdaVoltage by viewModel.currentLambdaVoltage.collectAsState()
 
     val rpmSensor = sensors.find { it.id == "rpm" }
     val speedSensor = sensors.find { it.id == "speed" }
@@ -182,6 +190,23 @@ fun DashboardScreen(viewModel: MainViewModel) {
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Botão Co-Piloto por Voz
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (voiceCopilotEnabled) TelemetryGreen.copy(alpha = 0.2f) else SurfaceVariantDark)
+                            .clickable { viewModel.toggleVoiceCopilot() }
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (voiceCopilotEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                            contentDescription = if (voiceCopilotEnabled) "Desativar Voz" else "Ativar Co-piloto por Voz",
+                            tint = if (voiceCopilotEnabled) TelemetryGreen else TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
                     // Botão Modo HUD (Para-brisa)
                     Box(
                         modifier = Modifier
@@ -496,6 +521,126 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         Column {
                             Text(text = "Pressão Máx:", color = TextSecondary, fontSize = 11.sp)
                             Text(text = "%.2f bar".format(peakTurbo), color = RacingRed, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Gráfico do Osciloscópio da Sonda Lambda em Tempo Real
+        item {
+            LambdaOscilloscopeView(
+                history = lambdaHistory,
+                currentVoltage = currentLambdaVoltage
+            )
+        }
+
+        // Computador de Bordo Financeiro (Custo em R$ e Consumo)
+        item {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, TelemetryGreen.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AttachMoney,
+                                contentDescription = null,
+                                tint = TelemetryGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "COMPUTADOR DE BORDO FINANCEIRO",
+                                color = TelemetryGreen,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+
+                        Text(
+                            text = "Zerar Trajeto",
+                            color = RacingRed,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { viewModel.resetTrip() }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(text = "Custo Estimado:", color = TextSecondary, fontSize = 11.sp)
+                            Text(
+                                text = "R$ %.2f".format(tripStats.totalCostReais),
+                                color = TelemetryGreen,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(text = "Consumo Médio:", color = TextSecondary, fontSize = 11.sp)
+                            Text(
+                                text = "%.1f km/L".format(tripStats.averageConsumptionKmL),
+                                color = AmberGlow,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(text = "Instantâneo:", color = TextSecondary, fontSize = 10.sp)
+                            Text(
+                                text = "%.1f km/L".format(tripStats.instantConsumptionKmL),
+                                color = ElectricCyan,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Column {
+                            Text(text = "Distância:", color = TextSecondary, fontSize = 10.sp)
+                            Text(
+                                text = "%.2f km".format(tripStats.totalDistanceKm),
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Column {
+                            Text(text = "Combustível:", color = TextSecondary, fontSize = 10.sp)
+                            Text(
+                                text = "%.2f L".format(tripStats.totalFuelUsedLiters),
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                     }
                 }

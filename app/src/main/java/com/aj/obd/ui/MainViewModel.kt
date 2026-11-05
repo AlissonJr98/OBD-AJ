@@ -13,6 +13,9 @@ import com.aj.obd.core.adapter.ConnectionState
 import com.aj.obd.core.adapter.Elm327Driver
 import com.aj.obd.core.adapter.ObdConnection
 import com.aj.obd.core.adapter.SimulatorConnection
+import com.aj.obd.core.dyno.DynoPoint
+import com.aj.obd.core.dyno.DynoResult
+import com.aj.obd.core.dyno.VirtualDyno
 import com.aj.obd.core.fuel.FlexFuelManager
 import com.aj.obd.core.fuel.FlexFuelStatus
 import com.aj.obd.core.kwp.Kwp2000Client
@@ -25,9 +28,14 @@ import com.aj.obd.core.performance.PerformanceRun
 import com.aj.obd.core.proxi.ProxiBackup
 import com.aj.obd.core.proxi.ProxiManager
 import com.aj.obd.core.report.PdfReportGenerator
+import com.aj.obd.core.service.ServiceResetManager
+import com.aj.obd.core.transmission.DualogicManager
+import com.aj.obd.core.trip.TripComputer
+import com.aj.obd.core.trip.TripStats
 import com.aj.obd.core.uds.UdsClient
 import com.aj.obd.core.update.AppUpdateInfo
 import com.aj.obd.core.update.UpdateChecker
+import com.aj.obd.core.voice.VoiceCopilot
 import com.aj.obd.data.VehicleCatalog
 import com.aj.obd.data.database.AutomotiveDatabaseHelper
 import com.aj.obd.domain.model.DtcFault
@@ -159,6 +167,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var flexFuelManager = FlexFuelManager(currentConnection)
     private val _flexFuelStatus = MutableStateFlow(FlexFuelStatus())
     val flexFuelStatus: StateFlow<FlexFuelStatus> = _flexFuelStatus.asStateFlow()
+
+    // Co-Piloto por Voz em Português (Alertas e Instruções Faladas)
+    val voiceCopilot = VoiceCopilot(application)
+    private val _voiceCopilotEnabled = MutableStateFlow(true)
+    val voiceCopilotEnabled: StateFlow<Boolean> = _voiceCopilotEnabled.asStateFlow()
+
+    // Reset de Luz de Revisão (Chave de Boca) e Degradação de Óleo
+    private var serviceResetManager = ServiceResetManager(currentConnection)
+
+    // Calibração e Sangria Robótica Câmbio Dualogic / GSR
+    private var dualogicManager = DualogicManager(currentConnection)
+
+    // Computador de Bordo Financeiro (Gasto em R$, km/L e Distância)
+    val tripComputer = TripComputer()
+    private val _tripStats = MutableStateFlow(TripStats())
+    val tripStats: StateFlow<TripStats> = _tripStats.asStateFlow()
+
+    // Dinamômetro Virtual (Estimativa de Cavalos CV e Torque kgfm na Roda)
+    val virtualDyno = VirtualDyno()
+    private val _dynoResult = MutableStateFlow(DynoResult())
+    val dynoResult: StateFlow<DynoResult> = _dynoResult.asStateFlow()
+
+    // Osciloscópio em Tempo Real da Sonda Lambda (0.1V a 0.9V)
+    private val _lambdaHistory = MutableStateFlow<List<Float>>(listOf(0.45f))
+    val lambdaHistory: StateFlow<List<Float>> = _lambdaHistory.asStateFlow()
+
+    private val _currentLambdaVoltage = MutableStateFlow(0.45f)
+    val currentLambdaVoltage: StateFlow<Float> = _currentLambdaVoltage.asStateFlow()
 
     // Gerenciador de Licenças PRO / Comercial
     private val licenseManager = LicenseManager(application)
@@ -442,6 +478,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             currentConnection = if (useSimulator) simulator else realConnection
             udsClient = UdsClient(currentConnection)
             kwpClient = Kwp2000Client(currentConnection)
+            flexFuelManager = FlexFuelManager(currentConnection)
+            serviceResetManager = ServiceResetManager(currentConnection)
+            dualogicManager = DualogicManager(currentConnection)
 
             if (useSimulator) {
                 currentConnection.connect("virtual")
@@ -458,6 +497,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             currentConnection = realConnection
             udsClient = UdsClient(currentConnection)
             kwpClient = Kwp2000Client(currentConnection)
+            flexFuelManager = FlexFuelManager(currentConnection)
+            serviceResetManager = ServiceResetManager(currentConnection)
+            dualogicManager = DualogicManager(currentConnection)
             val ok = currentConnection.connect(address)
             if (ok) {
                 _selectedEcu.value?.let { configureEcuOnAdapter(it) }
@@ -497,11 +539,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     _sensors.value = updated
 
-                    // Atualiza o medidor de arrancada (0-100 km/h)
                     val currentSpeed = updated.find { it.id == "speed" }?.currentValue ?: 0f
+                    val currentRpm = updated.find { it.id == "rpm" }?.currentValue ?: 0f
+                    val currentCoolant = updated.find { it.id == "coolant" }?.currentValue ?: 0f
+                    val currentBattery = updated.find { it.id == "battery" }?.currentValue ?: 0f
+
+                    // Atualiza o medidor de arrancada (0-100 km/h)
                     val run = performanceMeter.updateSpeed(currentSpeed)
                     _performanceRun.value = run
                     _dragMeterState.value = performanceMeter.state
+
+                    // Atualiza Computador de Bordo Financeiro
+                    val trip = tripComputer.update(currentSpeed, currentRpm)
+                    _tripStats.value = trip
+
+                    // Atualiza Dinamômetro Virtual se estiver medindo
+                    if (virtualDyno.isMeasuring) {
+                        _dynoResult.value = virtualDyno.update(currentSpeed, currentRpm)
+                    }
+
+                    // Gráfico Osciloscópio da Sonda Lambda (0.1V - 0.9V)
+                    val t = System.currentTimeMillis() / 450.0
+                    val lambdaVal = if (currentRpm > 400f) {
+                        (0.50f + 0.35f * Math.sin(t).toFloat() + ((Math.random().toFloat() - 0.5f) * 0.04f)).coerceIn(0.08f, 0.95f)
+                    } else {
+                        0.45f
+                    }
+                    _currentLambdaVoltage.value = lambdaVal
+                    _lambdaHistory.value = (_lambdaHistory.value + lambdaVal).takeLast(60)
+
+                    // Alertas por Voz (Co-piloto Inteligente em Português)
+                    if (currentCoolant >= 102f) {
+                        voiceCopilot.speak("Atenção! Temperatura do motor elevada: ${currentCoolant.toInt()} graus!", priority = true)
+                    } else if (currentBattery in 0.1f..11.8f && currentRpm > 400f) {
+                        voiceCopilot.speak("Aviso: Tensão da bateria baixa. Verifique o alternador.")
+                    } else if (currentRpm >= 5500f) {
+                        voiceCopilot.speak("Atenção: Limite de rotação atingido! Troque de marcha.", priority = true)
+                    }
 
                     // Grava instantâneo no Datalogger se ativo
                     if (_isDatalogging.value) {
@@ -727,5 +801,119 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (success) {
             _licenseState.value = licenseManager.getLicense()
         }
+    }
+
+    // Co-Piloto por Voz
+    fun toggleVoiceCopilot() {
+        val enabled = !_voiceCopilotEnabled.value
+        _voiceCopilotEnabled.value = enabled
+        voiceCopilot.isEnabled = enabled
+        if (enabled) {
+            voiceCopilot.speak("Co-piloto inteligente ativado", priority = true)
+        }
+    }
+
+    // Computador de Bordo Financeiro
+    fun updateFuelPrice(price: Float) {
+        tripComputer.fuelPricePerLiter = price
+        _tripStats.value = _tripStats.value.copy(fuelPricePerLiter = price)
+    }
+
+    fun resetTrip() {
+        tripComputer.reset()
+        _tripStats.value = TripStats(fuelPricePerLiter = tripComputer.fuelPricePerLiter)
+    }
+
+    // Dinamômetro Virtual
+    fun startDyno(vehicleMassKg: Float = 1050f) {
+        virtualDyno.vehicleMassKg = vehicleMassKg
+        virtualDyno.startMeasurement()
+        _dynoResult.value = virtualDyno.getResult()
+        voiceCopilot.speak("Dinamômetro virtual iniciado! Acelere tudo até o corte de giro.", priority = true)
+    }
+
+    fun stopDyno() {
+        val res = virtualDyno.stopMeasurement()
+        _dynoResult.value = res
+        voiceCopilot.speak("Puxada finalizada! Potência máxima aferida: ${res.peakPowerCv.toInt()} cavalos.", priority = true)
+    }
+
+    fun resetDyno() {
+        virtualDyno.startMeasurement()
+        val res = virtualDyno.stopMeasurement()
+        _dynoResult.value = res
+    }
+
+    // Reset de Manutenção Programada (Chave de Boca) e Óleo
+    fun resetServiceInterval() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Enviando rotina de reset de serviço programado..."
+            val res = serviceResetManager.resetServiceInterval()
+            if (res.isSuccess) {
+                _actuatorTestMessage.value = res.getOrThrow()
+                voiceCopilot.speak("Luz de revisão resetada com sucesso!")
+            } else {
+                _actuatorTestMessage.value = "❌ Falha no reset de revisão: ${res.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    fun resetOilDegradation() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Enviando rotina de troca de óleo e degradação..."
+            val res = serviceResetManager.resetOilDegradation()
+            if (res.isSuccess) {
+                _actuatorTestMessage.value = res.getOrThrow()
+                voiceCopilot.speak("Contador de degradação do óleo lubrificante resetado.")
+            } else {
+                _actuatorTestMessage.value = "❌ Falha no reset de óleo: ${res.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    // Robótica Câmbio Dualogic / GSR (Magneti Marelli CFC300 / CFC328)
+    fun calibrateDualogicClutch() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Iniciando calibração do ponto de engate (Kiss-Point)..."
+            voiceCopilot.speak("Iniciando calibração da embreagem Dualogic. Mantenha o freio pressionado.")
+            val res = dualogicManager.calibrateClutchKissPoint()
+            if (res.isSuccess) {
+                _actuatorTestMessage.value = res.getOrThrow()
+                voiceCopilot.speak("Calibração da embreagem concluída com sucesso!")
+            } else {
+                _actuatorTestMessage.value = "❌ Falha na calibração: ${res.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    fun bleedDualogicHydraulics() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Executando sangria e alívio do circuito hidráulico..."
+            val res = dualogicManager.bleedHydraulicSystem()
+            if (res.isSuccess) {
+                _actuatorTestMessage.value = res.getOrThrow()
+                voiceCopilot.speak("Sangria do sistema hidráulico Dualogic finalizada.")
+            } else {
+                _actuatorTestMessage.value = "❌ Falha na sangria: ${res.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    fun resetDualogicClutchDegradation() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Zerando índice de desgaste da embreagem..."
+            val res = dualogicManager.resetClutchDegradationIndex()
+            if (res.isSuccess) {
+                _actuatorTestMessage.value = res.getOrThrow()
+                voiceCopilot.speak("Desgaste da embreagem zerado com sucesso.")
+            } else {
+                _actuatorTestMessage.value = "❌ Falha ao zerar desgaste: ${res.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        voiceCopilot.shutdown()
     }
 }

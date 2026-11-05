@@ -17,15 +17,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -54,6 +57,7 @@ import com.aj.obd.ui.theme.TextSecondary
 fun PerformanceScreen(viewModel: MainViewModel) {
     val runData by viewModel.performanceRun.collectAsState()
     val meterState by viewModel.dragMeterState.collectAsState()
+    val dynoResult by viewModel.dynoResult.collectAsState()
     val sensors by viewModel.sensors.collectAsState()
     val speedKmh = sensors.find { it.id == "speed" }?.currentValue ?: 0f
 
@@ -258,6 +262,131 @@ fun PerformanceScreen(viewModel: MainViewModel) {
                 Icon(Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Preparar para Nova Arrancada", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+
+        // Dinamômetro Virtual (Curva de Potência e Torque na Roda)
+        item {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, AmberGlow.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.FlashOn, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "DINAMÔMETRO VIRTUAL (POTÊNCIA & TORQUE)",
+                                color = AmberGlow,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+
+                        if (dynoResult.isRecording) {
+                            Text(
+                                text = "MEDINDO...",
+                                color = RacingRed,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Acelere em 2ª ou 3ª marcha com pé no fundo até o corte de rotação para calcular a potência em CV e o torque em kgfm nas rodas.",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = "Potência Máxima:", color = TextSecondary, fontSize = 11.sp)
+                            Text(
+                                text = "%.0f CV".format(dynoResult.peakPowerCv),
+                                color = AmberGlow,
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "@ %.0f RPM".format(dynoResult.peakPowerRpm),
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = "Torque Máximo:", color = TextSecondary, fontSize = 11.sp)
+                            Text(
+                                text = "%.1f kgfm".format(dynoResult.peakTorqueKgfm),
+                                color = ElectricCyan,
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "@ %.0f RPM".format(dynoResult.peakTorqueRpm),
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (dynoResult.isRecording) {
+                        Button(
+                            onClick = { viewModel.stopDyno() },
+                            colors = ButtonDefaults.buttonColors(containerColor = RacingRed, contentColor = Color.White),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Finalizar Puxada & Ver Resultado", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { viewModel.startDyno() },
+                                colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = "Iniciar Puxada Dinamômetro", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.resetDyno() },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(text = "Zerar", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
