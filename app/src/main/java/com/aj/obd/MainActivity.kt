@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.aj.obd.ui.MainViewModel
+import com.aj.obd.ui.components.BluetoothConnectionSheet
 import com.aj.obd.ui.components.UpdateDialog
 import com.aj.obd.ui.screens.CableGuideScreen
 import com.aj.obd.ui.screens.ConnectionScreen
@@ -73,6 +74,15 @@ fun MainApp(viewModel: MainViewModel) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
     val showUpdateDialog by viewModel.showUpdateDialog.collectAsState()
     val appUpdateInfo by viewModel.appUpdateInfo.collectAsState()
+    val showConnectionSheet by viewModel.showConnectionSheet.collectAsState()
+
+    // Painel Futurista de Conexão Bluetooth
+    if (showConnectionSheet) {
+        BluetoothConnectionSheet(
+            viewModel = viewModel,
+            onDismiss = { viewModel.dismissConnectionSheet() }
+        )
+    }
 
     // Pop-up de Atualização OTA (GitHub Releases)
     if (showUpdateDialog && appUpdateInfo != null) {
@@ -128,7 +138,7 @@ fun MainApp(viewModel: MainViewModel) {
                     onNavigateToProxi = { currentScreen = Screen.PROXI },
                     onNavigateToPerformance = { currentScreen = Screen.PERFORMANCE },
                     onNavigateToCables = { currentScreen = Screen.CABLES },
-                    onNavigateToConnection = { /* Abre modal ou seletor de conexão */ }
+                    onNavigateToConnection = { viewModel.openConnectionSheet() }
                 )
                 Screen.DASHBOARD -> DashboardScreen(viewModel = viewModel)
                 Screen.PERFORMANCE -> PerformanceScreen(viewModel = viewModel)

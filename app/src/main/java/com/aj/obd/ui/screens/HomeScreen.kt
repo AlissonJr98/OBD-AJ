@@ -1,5 +1,10 @@
 package com.aj.obd.ui.screens
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,10 +25,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
@@ -48,12 +55,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.aj.obd.ui.components.FuturisticRadarView
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -153,59 +163,127 @@ fun HomeScreen(
             }
         }
 
-        // Status da Conexão / Adaptador
+        // Status da Conexão / Adaptador (Design 3D Futurista com Holograma e Radar)
         item {
+            val isConnected = connState is ConnectionState.Connected
+            val isConnecting = connState is ConnectionState.Connecting
+
+            // Transição infinita para pulsação luminosa de neon
+            val infiniteTransition = rememberInfiniteTransition(label = "pulse_neon")
+            val neonAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1.0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(900),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "neon_alpha"
+            )
+
+            val statusColor = when (connState) {
+                is ConnectionState.Connected -> TelemetryGreen
+                is ConnectionState.Connecting -> AmberGlow
+                is ConnectionState.Error -> RacingRed
+                ConnectionState.Disconnected -> AmberGlow
+            }
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .border(
+                        width = 1.5.dp,
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                statusColor.copy(alpha = if (isConnected) 0.9f else neonAlpha),
+                                Color(0xFF202028),
+                                ElectricCyan.copy(alpha = 0.5f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
+                    )
                     .clickable { onNavigateToConnection() }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(14.dp)
                 ) {
-                    val statusColor = when (connState) {
-                        is ConnectionState.Connected -> TelemetryGreen
-                        is ConnectionState.Connecting -> AmberGlow
-                        is ConnectionState.Error -> RacingRed
-                        ConnectionState.Disconnected -> Color.Gray
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(statusColor)
+                    // Mini Radar 3D com Varredura e Pulso
+                    FuturisticRadarView(
+                        size = 52.dp,
+                        isActive = isConnected || isConnecting
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "STATUS DO SCANNER",
-                            color = TextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(statusColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "SCANNER AUTOMOTIVO",
+                                color = statusColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
                         Text(
                             text = when (val s = connState) {
-                                is ConnectionState.Connected -> "${s.deviceName} (${s.firmwareVersion})"
-                                is ConnectionState.Connecting -> "Conectando: ${s.step}"
-                                is ConnectionState.Error -> s.message
-                                ConnectionState.Disconnected -> "Desconectado (Toque para conectar)"
+                                is ConnectionState.Connected -> s.deviceName
+                                is ConnectionState.Connecting -> "Conectando..."
+                                is ConnectionState.Error -> "Falha na Conexão"
+                                ConnectionState.Disconnected -> "Desconectado"
                             },
                             color = TextPrimary,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black
+                        )
+
+                        Text(
+                            text = when (val s = connState) {
+                                is ConnectionState.Connected -> "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V"
+                                is ConnectionState.Connecting -> s.step
+                                is ConnectionState.Error -> s.message
+                                ConnectionState.Disconnected -> "Toque aqui para conectar via Bluetooth"
+                            },
+                            color = if (isConnected) ElectricCyan else TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = if (isConnected) FontWeight.Bold else FontWeight.Normal
                         )
                     }
-                    if (connState is ConnectionState.Connected) {
-                        val volt = (connState as ConnectionState.Connected).batteryVoltage
+
+                    // Botão Visual 3D
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isConnected) TelemetryGreen.copy(alpha = 0.2f)
+                                else AmberGlow.copy(alpha = 0.2f)
+                            )
+                            .border(
+                                1.dp,
+                                if (isConnected) TelemetryGreen else AmberGlow,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = "%.1fV".format(volt),
-                            color = AmberGlow,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            text = if (isConnected) "ONLINE" else "CONECTAR",
+                            color = if (isConnected) TelemetryGreen else AmberGlow,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
                         )
                     }
                 }
@@ -755,40 +833,83 @@ fun EcuSelectionBottomSheet(
 fun QuickActionCard(
     title: String,
     subtitle: String,
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    // Animação de respiração suave e divertida para os ícones
+    val infiniteTransition = rememberInfiniteTransition(label = "icon_fun_anim")
+    val iconScale by infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "icon_scale"
+    )
+
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        modifier = modifier.clickable { onClick() }
+        modifier = modifier
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        tint.copy(alpha = 0.6f),
+                        Color(0xFF22222E),
+                        tint.copy(alpha = 0.15f)
+                    )
+                ),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clickable { onClick() }
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Círculo 3D com Halo Neon e Escala Animada
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(46.dp)
                     .clip(CircleShape)
-                    .background(tint.copy(alpha = 0.15f)),
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                tint.copy(alpha = 0.35f),
+                                tint.copy(alpha = 0.08f)
+                            )
+                        )
+                    )
+                    .border(1.dp, tint.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(imageVector = icon, contentDescription = null, tint = tint)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .scale(iconScale)
+                )
             }
+
             Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 text = title,
                 color = TextPrimary,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Black
             )
             Text(
                 text = subtitle,
                 color = TextSecondary,
-                fontSize = 10.sp
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }

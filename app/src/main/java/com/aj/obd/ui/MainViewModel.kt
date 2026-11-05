@@ -1,5 +1,6 @@
 package com.aj.obd.ui
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -49,6 +50,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
+data class PairedBluetoothDevice(
+    val name: String,
+    val address: String,
+    val isObdGuess: Boolean = false
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val bluetoothManager = application.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -73,6 +80,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _showUpdateDialog = MutableStateFlow(false)
     val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
+    // Painel e Dispositivos Bluetooth Pareados
+    private val _pairedDevices = MutableStateFlow<List<PairedBluetoothDevice>>(emptyList())
+    val pairedDevices: StateFlow<List<PairedBluetoothDevice>> = _pairedDevices.asStateFlow()
+
+    private val _showConnectionSheet = MutableStateFlow(false)
+    val showConnectionSheet: StateFlow<Boolean> = _showConnectionSheet.asStateFlow()
+
+    fun openConnectionSheet() {
+        refreshPairedDevices()
+        _showConnectionSheet.value = true
+    }
+
+    fun dismissConnectionSheet() {
+        _showConnectionSheet.value = false
+    }
+
+    fun isBluetoothEnabled(): Boolean {
+        return bluetoothAdapter?.isEnabled == true
+    }
+
+    @SuppressLint("MissingPermission")
+    fun refreshPairedDevices() {
+        try {
+            if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
+                val devices = bluetoothAdapter.bondedDevices.map { dev ->
+                    val name = dev.name ?: "Dispositivo Bluetooth"
+                    val isObd = name.contains("obd", ignoreCase = true) ||
+                            name.contains("elm", ignoreCase = true) ||
+                            name.contains("vlinker", ignoreCase = true) ||
+                            name.contains("viecar", ignoreCase = true) ||
+                            name.contains("scanner", ignoreCase = true) ||
+                            name.contains("link", ignoreCase = true)
+                    PairedBluetoothDevice(name = name, address = dev.address, isObdGuess = isObd)
+                }.sortedWith(compareByDescending<PairedBluetoothDevice> { it.isObdGuess }.thenBy { it.name })
+                _pairedDevices.value = devices
+            } else {
+                _pairedDevices.value = emptyList()
+            }
+        } catch (e: SecurityException) {
+            _pairedDevices.value = emptyList()
+        }
+    }
 
     // Datalogger CSV
     private val telemetryLogger = TelemetryLogger(application)
@@ -368,6 +418,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connectBluetooth(address: String) {
         viewModelScope.launch {
+            _showConnectionSheet.value = false
             _isSimulatorActive.value = false
             currentConnection = realConnection
             udsClient = UdsClient(currentConnection)
