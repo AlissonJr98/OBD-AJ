@@ -1,9 +1,14 @@
 package com.aj.obd
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -59,8 +64,32 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    private val requestBluetoothPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        viewModel.refreshPairedDevices()
+    }
+
+    private fun checkBluetoothPermissions() {
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            requestBluetoothPermissionsLauncher.launch(missing.toTypedArray())
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        checkBluetoothPermissions()
         setContent {
             ObdAjTheme {
                 MainApp(viewModel = viewModel)
@@ -70,6 +99,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        checkBluetoothPermissions()
         viewModel.onActivityResumed()
     }
 }
@@ -94,19 +124,13 @@ fun MainApp(viewModel: MainViewModel) {
         )
     }
 
-    // Pop-up de Atualização OTA In-App (Igual CineList e LivennIA)
+    // Pop-up de Atualização Oficial
     if (showUpdateDialog && appUpdateInfo != null) {
         UpdateDialog(
             updateInfo = appUpdateInfo!!,
-            isDownloading = isDownloadingUpdate,
-            downloadProgress = downloadProgress,
-            downloadProgressText = downloadProgressText,
-            downloadedFile = downloadedApkFile,
-            updateError = updateError,
             onDismiss = { viewModel.dismissUpdateDialog() },
-            onDownload = { url -> viewModel.downloadUpdate(url) },
-            onInstall = { viewModel.installDownloadedApk() },
-            onOpenInBrowser = { url -> viewModel.openUpdateInBrowser(url) }
+            onDownloadBrowser = { url -> viewModel.downloadViaBrowser(url) },
+            onDownloadManager = { url, version -> viewModel.downloadViaDownloadManager(url, version) }
         )
     }
 

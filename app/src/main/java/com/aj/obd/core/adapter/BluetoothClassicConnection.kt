@@ -42,8 +42,51 @@ class BluetoothClassicConnection(
             _state.value = ConnectionState.Connecting(device.name ?: address, "Criando Socket SPP...")
 
             bluetoothAdapter.cancelDiscovery()
-            socket = device.createRfcommSocketToServiceRecord(sppUuid)
-            socket?.connect()
+            var isConnected = false
+            var lastSocketException: Exception? = null
+
+            // 1ª Tentativa: Standard RFCOMM SPP UUID
+            try {
+                socket = device.createRfcommSocketToServiceRecord(sppUuid)
+                socket?.connect()
+                isConnected = true
+            } catch (e1: Exception) {
+                lastSocketException = e1
+                try { socket?.close() } catch (_: Exception) {}
+                socket = null
+            }
+
+            // 2ª Tentativa: Reflection RFCOMM no canal 1 (essencial para clones chineses ELM327)
+            if (!isConnected) {
+                _state.value = ConnectionState.Connecting(device.name ?: address, "Tentando canal alternativo RFCOMM...")
+                try {
+                    val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                    socket = m.invoke(device, 1) as BluetoothSocket
+                    socket?.connect()
+                    isConnected = true
+                } catch (e2: Exception) {
+                    lastSocketException = e2
+                    try { socket?.close() } catch (_: Exception) {}
+                    socket = null
+                }
+            }
+
+            // 3ª Tentativa: Insecure RFCOMM Socket
+            if (!isConnected) {
+                try {
+                    socket = device.createInsecureRfcommSocketToServiceRecord(sppUuid)
+                    socket?.connect()
+                    isConnected = true
+                } catch (e3: Exception) {
+                    lastSocketException = e3
+                    try { socket?.close() } catch (_: Exception) {}
+                    socket = null
+                }
+            }
+
+            if (!isConnected || socket == null) {
+                throw lastSocketException ?: IllegalStateException("Não foi possível estabelecer conexão RFCOMM com o scanner.")
+            }
 
             reader = BufferedReader(InputStreamReader(socket!!.inputStream))
             writer = BufferedWriter(OutputStreamWriter(socket!!.outputStream))

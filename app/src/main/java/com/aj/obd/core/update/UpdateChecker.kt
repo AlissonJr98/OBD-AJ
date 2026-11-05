@@ -1,23 +1,17 @@
 package com.aj.obd.core.update
 
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import com.aj.obd.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -73,9 +67,7 @@ class UpdateChecker(private val context: Context) {
             } else {
                 conn.disconnect()
             }
-        } catch (_: Exception) {
-            // Continua para o fallback via GitHub Releases API
-        }
+        } catch (_: Exception) {}
 
         // 2. Fallback via GitHub Releases API
         try {
@@ -116,7 +108,7 @@ class UpdateChecker(private val context: Context) {
                 Result.success(
                     AppUpdateInfo(
                         hasUpdate = hasUpdate,
-                        latestVersion = tagName.ifEmpty { "1.2.2" },
+                        latestVersion = tagName.ifEmpty { "1.2.6" },
                         currentVersion = currentVersion,
                         releaseTitle = releaseTitle,
                         releaseNotes = releaseNotes,
@@ -142,234 +134,49 @@ class UpdateChecker(private val context: Context) {
     }
 
     /**
-     * Baixa o APK diretamente dentro do aplicativo com barra de progresso suave
-     * sem sair da tela e instala automaticamente ao concluir (Igual CineList e LivennIA)
+     * ABORDAGEM 1 (Recomendada): Abre o APK direto no navegador padrão (Chrome, Samsung Internet).
+     * 100% à prova de falhas em qualquer versão do Android. O navegador faz o download veloz
+     * e notifica o usuário com o botão 'Abrir' / 'Instalar' de imediato.
      */
-    suspend fun downloadApkInApp(
-        apkUrl: String,
-        onProgress: (progress: Float, downloadedMb: Float, totalMb: Float) -> Unit,
-        onSuccess: (file: File) -> Unit,
-        onError: (error: String) -> Unit
-    ) = withContext(Dispatchers.IO) {
-        try {
-            val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                ?: context.filesDir
-            val destinationDir = File(baseDir, "updates")
-            if (!destinationDir.exists()) {
-                destinationDir.mkdirs()
-            }
-
-            val destinationFile = File(destinationDir, "OBD-AJ-Update.apk")
-            if (destinationFile.exists()) {
-                destinationFile.delete()
-            }
-
-            var currentUrl = apkUrl
-            var connection: HttpURLConnection
-
-            // Segue redirects com segurança (GitHub Releases redireciona para storage S3/Azure da Microsoft)
-            var redirects = 0
-            while (true) {
-                val urlObj = URL(currentUrl)
-                connection = urlObj.openConnection() as HttpURLConnection
-                connection.instanceFollowRedirects = false
-                connection.connectTimeout = 15000
-                connection.readTimeout = 30000
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) OBD-AJ-Android-Updater")
-                connection.setRequestProperty("Accept", "*/*")
-
-                val status = connection.responseCode
-                if (status in listOf(301, 302, 303, 307, 308)) {
-                    val newUrl = connection.getHeaderField("Location")
-                    connection.disconnect()
-                    if (newUrl.isNullOrBlank()) {
-                        throw IllegalStateException("Redirecionamento sem cabeçalho Location.")
-                    }
-                    currentUrl = newUrl
-                    redirects++
-                    if (redirects > 8) throw IllegalStateException("Muitos redirecionamentos ao baixar atualização.")
-                    continue
-                }
-                if (status != HttpURLConnection.HTTP_OK) {
-                    connection.disconnect()
-                    throw IllegalStateException("Servidor retornou status HTTP $status ao baixar atualização.")
-                }
-                break
-            }
-
-            val fileLength = connection.contentLengthLong
-            val input: InputStream = connection.inputStream
-            val output = FileOutputStream(destinationFile)
-
-            val data = ByteArray(32 * 1024) // 32 KB buffer para download veloz
-            var total: Long = 0
-            var count: Int
-            var lastUiUpdateTime = 0L
-
-            val estimatedTotalBytes = if (fileLength > 1_000_000L) fileLength else 37_500_000L
-            val totalMb = estimatedTotalBytes / (1024f * 1024f)
-
-            while (input.read(data).also { count = it } != -1) {
-                total += count
-                output.write(data, 0, count)
-
-                val now = System.currentTimeMillis()
-                // Limita dispatch para a UI a cada 50ms para manter a tela a 60fps
-                if (now - lastUiUpdateTime > 50L || total >= estimatedTotalBytes) {
-                    lastUiUpdateTime = now
-                    val progress = (total.toFloat() / estimatedTotalBytes.toFloat()).coerceIn(0f, 0.99f)
-                    val downloadedMb = total / (1024f * 1024f)
-
-                    withContext(Dispatchers.Main) {
-                        onProgress(progress, downloadedMb, totalMb)
-                    }
-                }
-            }
-
-            output.flush()
-            output.close()
-            input.close()
-            connection.disconnect()
-
-            // Validação de integridade do arquivo APK baixado
-            if (destinationFile.length() < 100_000L) {
-                destinationFile.delete()
-                throw IllegalStateException("Arquivo da atualização incompleto ou corrompido.")
-            }
-
-            // Garante permissões de leitura no filesystem Linux
-            destinationFile.setReadable(true, false)
-            destinationFile.setWritable(true, false)
-
-            // Verifica cabeçalho ZIP ('P', 'K')
-            val isZip = destinationFile.inputStream().use { stream ->
-                val header = ByteArray(2)
-                stream.read(header)
-                header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte()
-            }
-            if (!isZip) {
-                destinationFile.delete()
-                throw IllegalStateException("O arquivo baixado não é um pacote APK válido.")
-            }
-
-            withContext(Dispatchers.Main) {
-                onProgress(1f, total / (1024f * 1024f), totalMb)
-                onSuccess(destinationFile)
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                onError("Erro ao baixar atualização: ${e.localizedMessage}")
-            }
-        }
-    }
-
-    fun canRequestPackageInstalls(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.packageManager.canRequestPackageInstalls()
-        } else {
-            true
-        }
-    }
-
-    fun openInstallPermissionSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${context.packageName}")
-                ).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(context, "Ative a permissão 'Permitir desta fonte' para atualizar o OBD AJ.", Toast.LENGTH_LONG).show()
-                }
-            } catch (_: Exception) {
-                try {
-                    val genericIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(genericIntent)
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    /**
-     * Dispara o instalador nativo do Android diretamente na tela do app
-     */
-    fun installApk(file: File): Boolean {
-        if (!file.exists() || file.length() < 100_000L) {
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "APK não encontrado ou corrompido.", Toast.LENGTH_SHORT).show()
-            }
-            return false
-        }
-
-        // Garante permissões de leitura do arquivo no disco
-        file.setReadable(true, false)
-        file.setWritable(true, false)
-
-        // 1. CHECAGEM CRÍTICA DE PERMISSÃO ANTES DE DISPARAR O INTENT
-        // Se não tiver permissão, o Android ignora o Intent silenciosamente. Abrimos as configurações diretamente:
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canRequestPackageInstalls()) {
-            openInstallPermissionSettings()
-            return false
-        }
-
-        try {
-            val apkUri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            }
-
-            // Garante permissão explícita para os gerenciadores de instalação do Android
-            val resolveList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager.queryIntentActivities(
-                    installIntent,
-                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.queryIntentActivities(installIntent, PackageManager.MATCH_DEFAULT_ONLY)
-            }
-
-            for (resolveInfo in resolveList) {
-                context.grantUriPermission(
-                    resolveInfo.activityInfo.packageName,
-                    apkUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-
-            context.startActivity(installIntent)
-            return true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "Erro ao abrir o instalador: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-            }
-            return false
-        }
-    }
-
     fun openInBrowser(downloadUrl: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
-        } catch (_: Exception) {}
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Abrindo download no navegador...", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Erro ao abrir navegador: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * ABORDAGEM 2: Dispara o download nativo via DownloadManager do Android
+     * O download roda em segundo plano e notifica na barra de status do aparelho.
+     */
+    fun startDownloadManager(downloadUrl: String, versionName: String): Long {
+        try {
+            val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
+                setTitle("OBD AJ v$versionName - Atualização")
+                setDescription("Baixando novo pacote APK...")
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "OBD-AJ-v$versionName.apk")
+                setMimeType("application/vnd.android.package-archive")
+            }
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val downloadId = dm.enqueue(request)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Download iniciado! Acompanhe na barra de notificações do celular.", Toast.LENGTH_LONG).show()
+            }
+            return downloadId
+        } catch (e: Exception) {
+            openInBrowser(downloadUrl)
+            return -1L
+        }
     }
 
     private fun isVersionNewer(remote: String, current: String): Boolean {

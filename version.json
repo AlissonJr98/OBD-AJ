@@ -1,7 +1,7 @@
 {
-  "versionCode": 8,
-  "versionName": "1.2.5",
-  "title": "OBD AJ v1.2.5 - Correção Definitiva da Formatação de Download e Instalação Fluida",
-  "notes": "• Correção do bug de formatação de texto do download (Flags = '(')\n• Barra de progressão 100% fluida com contagem precisa de MBs e porcentagem\n• Instalação nativa imediata automática ao concluir o download\n• Barra Shift Light estilo F1 com LEDs sequenciais na tela de Arrancada (0-100)\n• Ajuste Forçado de Combustível A/F (Etanol 9.0 x Gasolina 13.2) para centrais Flex\n• Emissão e compartilhamento de Laudo Técnico Veicular em PDF diretamente para o WhatsApp",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.5/OBD-AJ-v1.2.5.apk"
+  "versionCode": 9,
+  "versionName": "1.2.6",
+  "title": "OBD AJ v1.2.6 - Conexão Bluetooth Blindada & Atualização Direta no Navegador",
+  "notes": "• Conexão Bluetooth com fallback para clones chineses ELM327 (Reflection canal 1 e socket insecure)\n• Solicitação automática de permissões BLUETOOTH_CONNECT e BLUETOOTH_SCAN em tempo de execução\n• Feedback em tempo real durante a conexão (radar holográfico ativo e mensagens claras)\n• Nova abordagem de atualização: download direto e veloz pelo Navegador (Chrome) ou pela barra de notificações (DownloadManager)",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.6/OBD-AJ-v1.2.6.apk"
 }

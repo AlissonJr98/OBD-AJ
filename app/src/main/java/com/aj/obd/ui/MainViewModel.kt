@@ -381,58 +381,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateChecker.openInBrowser(url)
     }
 
+    fun downloadViaBrowser(url: String) {
+        updateChecker.openInBrowser(url)
+        _showUpdateDialog.value = false
+    }
+
+    fun downloadViaDownloadManager(url: String, versionName: String) {
+        updateChecker.startDownloadManager(url, versionName)
+        _showUpdateDialog.value = false
+    }
+
     fun downloadUpdate(url: String) {
-        startInAppUpdate(url)
-    }
-
-    fun startInAppUpdate(downloadUrl: String) {
-        viewModelScope.launch {
-            _isDownloadingUpdate.value = true
-            _downloadProgress.value = 0f
-            _downloadProgressText.value = "Conectando ao GitHub para baixar..."
-            _updateError.value = null
-            _downloadedApkFile.value = null
-
-            updateChecker.downloadApkInApp(
-                apkUrl = downloadUrl,
-                onProgress = { progress, downloadedMb, totalMb ->
-                    _downloadProgress.value = progress
-                    val pct = (progress * 100).toInt()
-                    val dStr = String.format(java.util.Locale.US, "%.1f", downloadedMb)
-                    val tStr = String.format(java.util.Locale.US, "%.1f", totalMb)
-                    _downloadProgressText.value = "Baixando: $pct% ($dStr MB / $tStr MB)"
-                },
-                onSuccess = { file ->
-                    _isDownloadingUpdate.value = false
-                    _downloadProgress.value = 1f
-                    _downloadProgressText.value = "Download 100% concluído! Abrindo instalador..."
-                    _downloadedApkFile.value = file
-                    Toast.makeText(getApplication(), "Download concluído! Abrindo instalador nativo...", Toast.LENGTH_SHORT).show()
-                    // Instala automaticamente assim que o download terminar
-                    updateChecker.installApk(file)
-                },
-                onError = { err ->
-                    _isDownloadingUpdate.value = false
-                    _updateError.value = err
-                    _downloadProgressText.value = err
-                    Toast.makeText(getApplication(), err, Toast.LENGTH_LONG).show()
-                }
-            )
-        }
-    }
-
-    fun installDownloadedApk() {
-        val file = _downloadedApkFile.value
-        if (file != null && file.exists()) {
-            updateChecker.installApk(file)
-        }
+        updateChecker.openInBrowser(url)
+        _showUpdateDialog.value = false
     }
 
     fun onActivityResumed() {
-        val file = _downloadedApkFile.value
-        if (file != null && file.exists() && updateChecker.canRequestPackageInstalls()) {
-            installDownloadedApk()
-        }
+        refreshPairedDevices()
     }
 
     // Inicia e para o Datalogger CSV
@@ -549,7 +514,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connectBluetooth(address: String) {
         viewModelScope.launch {
-            _showConnectionSheet.value = false
             _isSimulatorActive.value = false
             currentConnection = realConnection
             udsClient = UdsClient(currentConnection)
@@ -557,10 +521,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             flexFuelManager = FlexFuelManager(currentConnection)
             serviceResetManager = ServiceResetManager(currentConnection)
             dualogicManager = DualogicManager(currentConnection)
+
+            Toast.makeText(getApplication(), "Conectando ao scanner OBD...", Toast.LENGTH_SHORT).show()
             val ok = currentConnection.connect(address)
             if (ok) {
+                Toast.makeText(getApplication(), "✅ Scanner Conectado com Sucesso!", Toast.LENGTH_SHORT).show()
+                delay(700)
+                _showConnectionSheet.value = false
                 _selectedEcu.value?.let { configureEcuOnAdapter(it) }
                 startTelemetryLoop()
+            } else {
+                val err = (currentConnection.state.value as? ConnectionState.Error)?.message ?: "Falha ao conectar ao scanner"
+                Toast.makeText(getApplication(), "❌ $err", Toast.LENGTH_LONG).show()
             }
         }
     }

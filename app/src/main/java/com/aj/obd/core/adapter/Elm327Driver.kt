@@ -2,6 +2,7 @@ package com.aj.obd.core.adapter
 
 import com.aj.obd.domain.model.EcuModule
 import com.aj.obd.domain.model.ProtocolType
+import kotlinx.coroutines.delay
 
 data class AdapterInfo(
     val type: AdapterType,
@@ -16,6 +17,7 @@ class Elm327Driver(private val connection: ObdConnection) {
         // Reset rápido do chip ELM/STN
         connection.sendRawCommand("ATWS")
         val atz = connection.sendRawCommand("ATZ").getOrDefault("")
+        delay(350) // Aguarda o microcontrolador do ELM327 inicializar o clock após o reset
 
         // Desliga eco, espaços e quebras de linha extras
         connection.sendRawCommand("ATE0")
