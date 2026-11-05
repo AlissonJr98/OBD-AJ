@@ -2,6 +2,7 @@ package com.aj.obd.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,34 +51,38 @@ import com.aj.obd.ui.theme.TextSecondary
 @Composable
 fun UpdateDialog(
     updateInfo: AppUpdateInfo,
+    isDownloading: Boolean = false,
+    downloadProgress: Float = 0f,
+    downloadProgressText: String = "",
     onDismiss: () -> Unit,
     onDownload: (String) -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = { if (!isDownloading) onDismiss() }) {
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceDark),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
+                .border(1.5.dp, AmberGlow.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Logotipo do OBD AJ
+                // Logotipo Oficial do OBD AJ
                 Image(
                     painter = painterResource(id = R.drawable.logo_obdaj),
                     contentDescription = "Logo OBD AJ",
                     modifier = Modifier
-                        .size(54.dp)
+                        .size(56.dp)
                         .clip(RoundedCornerShape(12.dp))
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "NOVA ATUALIZAÇÃO DISPONÍVEL!",
+                    text = "ATUALIZAÇÃO OFICIAL DISPONÍVEL",
                     color = AmberGlow,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
@@ -99,22 +105,24 @@ fun UpdateDialog(
                             text = "Atual: v${updateInfo.currentVersion}",
                             color = TextSecondary,
                             fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
                     }
 
-                    Text(text = "➜", color = AmberGlow, fontSize = 12.sp)
+                    Text(text = "➔", color = AmberGlow, fontSize = 14.sp)
 
                     Box(
                         modifier = Modifier
                             .background(TelemetryGreen.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                            .border(1.dp, TelemetryGreen, RoundedCornerShape(6.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = "Nova: v${updateInfo.latestVersion}",
                             color = TelemetryGreen,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -124,7 +132,7 @@ fun UpdateDialog(
 
                 // Notas da versão / Changelog
                 Text(
-                    text = "O que há de novo:",
+                    text = "Novidades desta versão:",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -135,54 +143,95 @@ fun UpdateDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(110.dp)
+                        .height(115.dp)
                         .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
                         .padding(10.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
                     Text(
-                        text = updateInfo.releaseNotes.ifBlank { "• Correções no Cockpit e Manômetros\n• Suporte a K-Line Palio 2001 e Fiat antigos\n• Shift Light e Alarmes de Sobreaquecimento\n• Datalogger CSV de telemetria" },
+                        text = updateInfo.releaseNotes.ifBlank { "• Conexão rápida com scanner Bluetooth\n• Radar 3D holográfico com animação\n• Manômetros com agulha e luzes neon\n• Atualização direta in-app integrada" },
                         color = TextPrimary,
                         fontSize = 12.sp,
-                        lineHeight = 18.sp
+                        lineHeight = 17.sp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Botão de Download Principal
-                Button(
-                    onClick = { onDownload(updateInfo.downloadUrl) },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AmberGlow,
-                        contentColor = Color.Black
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "BAIXAR ATUALIZAÇÃO",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 13.sp
-                    )
-                }
+                // Seção de Download In-App com Barra de Progresso
+                if (isDownloading) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceVariantDark, RoundedCornerShape(10.dp))
+                            .padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "BAIXANDO ATUALIZAÇÃO...",
+                            color = AmberGlow,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = downloadProgressText.ifBlank { "Aguarde o download completar..." },
+                            color = TextPrimary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = AmberGlow,
+                            trackColor = Color(0xFF282834)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Fique no aplicativo. O instalador abrirá automaticamente.",
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
+                } else {
+                    // Botão Atualizar Agora
+                    Button(
+                        onClick = { onDownload(updateInfo.downloadUrl) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AmberGlow,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "ATUALIZAR DIRETO NO APP",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 13.sp
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                // Botão Dispensar
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Lembrar Mais Tarde",
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Lembrar Mais Tarde",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }

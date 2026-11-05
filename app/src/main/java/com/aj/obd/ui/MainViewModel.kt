@@ -81,6 +81,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showUpdateDialog = MutableStateFlow(false)
     val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
 
+    // Download de Atualização In-App (Igual CineList / LivennIA)
+    private val _isDownloadingUpdate = MutableStateFlow(false)
+    val isDownloadingUpdate: StateFlow<Boolean> = _isDownloadingUpdate.asStateFlow()
+
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
+
+    private val _downloadProgressText = MutableStateFlow("")
+    val downloadProgressText: StateFlow<String> = _downloadProgressText.asStateFlow()
+
     // Painel e Dispositivos Bluetooth Pareados
     private val _pairedDevices = MutableStateFlow<List<PairedBluetoothDevice>>(emptyList())
     val pairedDevices: StateFlow<List<PairedBluetoothDevice>> = _pairedDevices.asStateFlow()
@@ -303,9 +313,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun downloadUpdate(url: String) {
-        val targetVer = _appUpdateInfo.value?.latestVersion ?: "1.1.0"
-        updateChecker.startDirectDownloadAndInstall(url, "OBD-AJ-v$targetVer.apk")
-        _showUpdateDialog.value = false
+        startInAppUpdate(url)
+    }
+
+    fun startInAppUpdate(downloadUrl: String) {
+        viewModelScope.launch {
+            _isDownloadingUpdate.value = true
+            _downloadProgress.value = 0f
+            _downloadProgressText.value = "Iniciando download da atualização..."
+
+            updateChecker.downloadApkInApp(
+                apkUrl = downloadUrl,
+                onProgress = { progress, downloadedMb, totalMb ->
+                    _downloadProgress.value = progress
+                    _downloadProgressText.value = "Baixando: ${(progress * 100).toInt()}% (%.1f MB / %.1f MB)".format(downloadedMb, totalMb)
+                },
+                onSuccess = { file ->
+                    _isDownloadingUpdate.value = false
+                    _downloadProgress.value = 1f
+                    _downloadProgressText.value = "Download concluído! Abrindo instalador..."
+                    updateChecker.installApk(file)
+                },
+                onError = { err ->
+                    _isDownloadingUpdate.value = false
+                    _downloadProgressText.value = err
+                }
+            )
+        }
     }
 
     // Inicia e para o Datalogger CSV

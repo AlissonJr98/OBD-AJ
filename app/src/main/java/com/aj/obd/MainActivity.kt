@@ -74,6 +74,9 @@ fun MainApp(viewModel: MainViewModel) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
     val showUpdateDialog by viewModel.showUpdateDialog.collectAsState()
     val appUpdateInfo by viewModel.appUpdateInfo.collectAsState()
+    val isDownloadingUpdate by viewModel.isDownloadingUpdate.collectAsState()
+    val downloadProgress by viewModel.downloadProgress.collectAsState()
+    val downloadProgressText by viewModel.downloadProgressText.collectAsState()
     val showConnectionSheet by viewModel.showConnectionSheet.collectAsState()
 
     // Painel Futurista de Conexão Bluetooth
@@ -84,10 +87,13 @@ fun MainApp(viewModel: MainViewModel) {
         )
     }
 
-    // Pop-up de Atualização OTA (GitHub Releases)
+    // Pop-up de Atualização OTA In-App (Igual CineList e LivennIA)
     if (showUpdateDialog && appUpdateInfo != null) {
         UpdateDialog(
             updateInfo = appUpdateInfo!!,
+            isDownloading = isDownloadingUpdate,
+            downloadProgress = downloadProgress,
+            downloadProgressText = downloadProgressText,
             onDismiss = { viewModel.dismissUpdateDialog() },
             onDownload = { url -> viewModel.downloadUpdate(url) }
         )
