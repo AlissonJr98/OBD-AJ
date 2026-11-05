@@ -1,5 +1,13 @@
 # OBD AJ — Scanner & Diagnóstico Automotivo Avançado
 
+[![Download APK](https://img.shields.io/badge/Download-APK_v1.0.0-f59e0b?style=for-the-badge&logo=android&logoColor=black)](https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.0.0/OBD-AJ-v1.0.0.apk)
+[![Release](https://img.shields.io/badge/Release-v1.0.0-10b981?style=for-the-badge&logo=github)](https://github.com/AlissonJr98/OBD-AJ/releases/tag/v1.0.0)
+
+> ### 📲 [CLIQUE AQUI PARA BAIXAR O APK INSTALÁVEL (v1.0.0)](https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.0.0/OBD-AJ-v1.0.0.apk)
+> Baixe o arquivo **`OBD-AJ-v1.0.0.apk`** e instale diretamente no seu celular ou central multimídia Android (habilite "Instalar fontes desconhecidas" no Android se solicitado).
+
+---
+
 **OBD AJ** é um aplicativo Android moderno desenvolvido em **Kotlin** e **Jetpack Compose**, projetado para substituir e modernizar softwares legados de diagnóstico como o AlfaOBD. Focado principalmente em veículos do Grupo Stellantis / FCA (Fiat, Jeep, RAM, Alfa Romeo), o aplicativo combina diagnósticos avançados com uma interface no estilo cockpit esportivo e ativações seguras em um toque.
 
 ---
