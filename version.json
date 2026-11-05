@@ -1,7 +1,7 @@
 {
-  "versionCode": 7,
-  "versionName": "1.2.4",
-  "title": "OBD AJ v1.2.4 - Atualização In-App Blindada, Shift Light F1 e Ajuste A/F Flex",
-  "notes": "• Atualização In-App blindada com download suave, barra de progresso em tempo real e abertura garantida do instalador nativo\n• Abertura automática das configurações de fontes desconhecidas caso necessário, com retomada instantânea ao voltar ao app\n• Barra Shift Light estilo F1 com LEDs sequenciais e bipe sonoro de troca de marcha na Arrancada (0-100)\n• Ajuste Forçado de Combustível A/F (Etanol 9.0 x Gasolina 13.2) para centrais Flex\n• Emissão e compartilhamento de Laudo Técnico Veicular em PDF diretamente para o WhatsApp do cliente",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.4/OBD-AJ-v1.2.4.apk"
+  "versionCode": 8,
+  "versionName": "1.2.5",
+  "title": "OBD AJ v1.2.5 - Correção Definitiva da Formatação de Download e Instalação Fluida",
+  "notes": "• Correção do bug de formatação de texto do download (Flags = '(')\n• Barra de progressão 100% fluida com contagem precisa de MBs e porcentagem\n• Instalação nativa imediata automática ao concluir o download\n• Barra Shift Light estilo F1 com LEDs sequenciais na tela de Arrancada (0-100)\n• Ajuste Forçado de Combustível A/F (Etanol 9.0 x Gasolina 13.2) para centrais Flex\n• Emissão e compartilhamento de Laudo Técnico Veicular em PDF diretamente para o WhatsApp",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.5/OBD-AJ-v1.2.5.apk"
 }

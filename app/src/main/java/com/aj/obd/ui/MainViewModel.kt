@@ -397,7 +397,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 apkUrl = downloadUrl,
                 onProgress = { progress, downloadedMb, totalMb ->
                     _downloadProgress.value = progress
-                    _downloadProgressText.value = "Baixando: ${(progress * 100).toInt()}% (%.1f MB / %.1f MB)".format(downloadedMb, totalMb)
+                    val pct = (progress * 100).toInt()
+                    val dStr = String.format(java.util.Locale.US, "%.1f", downloadedMb)
+                    val tStr = String.format(java.util.Locale.US, "%.1f", totalMb)
+                    _downloadProgressText.value = "Baixando: $pct% ($dStr MB / $tStr MB)"
                 },
                 onSuccess = { file ->
                     _isDownloadingUpdate.value = false
