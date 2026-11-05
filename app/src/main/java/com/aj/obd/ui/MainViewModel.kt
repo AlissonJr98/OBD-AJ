@@ -14,6 +14,10 @@ import com.aj.obd.core.adapter.ConnectionState
 import com.aj.obd.core.adapter.Elm327Driver
 import com.aj.obd.core.adapter.ObdConnection
 import com.aj.obd.core.adapter.SimulatorConnection
+import com.aj.obd.core.ai.AiDiagnosticReport
+import com.aj.obd.core.ai.DiagnosticAssistant
+import com.aj.obd.core.battery.BatteryHealthTester
+import com.aj.obd.core.battery.BatteryTestResult
 import com.aj.obd.core.dyno.DynoPoint
 import com.aj.obd.core.dyno.DynoResult
 import com.aj.obd.core.dyno.VirtualDyno
@@ -202,6 +206,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentLambdaVoltage = MutableStateFlow(0.45f)
     val currentLambdaVoltage: StateFlow<Float> = _currentLambdaVoltage.asStateFlow()
+
+    // Testador de Saúde da Bateria & Arranque (Cranking Test)
+    val batteryTester = BatteryHealthTester()
+    private val _batteryTestResult = MutableStateFlow(BatteryTestResult())
+    val batteryTestResult: StateFlow<BatteryTestResult> = _batteryTestResult.asStateFlow()
+
+    // Assistente Mecânico com Inteligência Artificial
+    private val _selectedAiReport = MutableStateFlow<AiDiagnosticReport?>(null)
+    val selectedAiReport: StateFlow<AiDiagnosticReport?> = _selectedAiReport.asStateFlow()
 
     // Gerenciador de Licenças PRO / Comercial
     private val licenseManager = LicenseManager(application)
@@ -611,6 +624,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _currentLambdaVoltage.value = lambdaVal
                     _lambdaHistory.value = (_lambdaHistory.value + lambdaVal).takeLast(60)
 
+                    // Atualiza teste de saúde da bateria e queda de tensão no arranque
+                    _batteryTestResult.value = batteryTester.updateVoltage(currentBattery, currentRpm)
+
                     // Alertas por Voz (Co-piloto Inteligente em Português)
                     if (currentCoolant >= 102f) {
                         voiceCopilot.speak("Atenção! Temperatura do motor elevada: ${currentCoolant.toInt()} graus!", priority = true)
@@ -951,6 +967,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 voiceCopilot.speak("Desgaste da embreagem zerado com sucesso.")
             } else {
                 _actuatorTestMessage.value = "❌ Falha ao zerar desgaste: ${res.exceptionOrNull()?.message}"
+            }
+        }
+    }
+
+    // Assistente com Inteligência Artificial para DTCs
+    fun diagnoseDtcWithAi(dtc: DtcFault) {
+        val report = DiagnosticAssistant.generateReport(dtc.code, dtc.description, _selectedVehicle.value.name)
+        _selectedAiReport.value = report
+        voiceCopilot.speak("Diagnóstico com inteligência artificial gerado para o código ${dtc.code}.")
+    }
+
+    fun dismissAiReport() {
+        _selectedAiReport.value = null
+    }
+
+    // Testador de Saúde da Bateria & Arranque (Cranking Test)
+    fun startBatteryTest() {
+        val currentBattery = _sensors.value.find { it.id == "battery" }?.currentValue ?: 12.5f
+        batteryTester.startTest(currentBattery)
+        _batteryTestResult.value = batteryTester.getResult()
+        voiceCopilot.speak("Teste de bateria iniciado. Dê a partida no motor agora.")
+    }
+
+    fun finishBatteryTest() {
+        val res = batteryTester.finishTest()
+        _batteryTestResult.value = res
+        voiceCopilot.speak("Teste elétrico concluído. ${res.statusText}")
+    }
+
+    // Calibração de Roda Fônica (Rotina Oficial Fiat Fire P1300)
+    fun calibratePhonicWheelFiat() {
+        viewModelScope.launch {
+            _actuatorTestMessage.value = "Rotina de calibração da roda fônica iniciada! Aqueça o motor e dê 3 aceleradas até 5.000 RPM."
+            voiceCopilot.speak("Calibração da roda fônica iniciada. Com o motor aquecido, acelere a fundo até 5.000 RPM três vezes seguidas.", priority = true)
+            // Envia rotina de aprendizado para a injeção (Marelli 4AF/4EF/59F/7GF)
+            val res = currentConnection.sendRawCommand("31 01 0F")
+            if (!res.isSuccess) {
+                currentConnection.sendRawCommand("31 01 01")
             }
         }
     }

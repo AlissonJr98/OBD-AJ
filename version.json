@@ -1,7 +1,7 @@
 {
-  "versionCode": 5,
-  "versionName": "1.2.2",
-  "title": "OBD AJ v1.2.2 - Atualização Oficial com Instalação Automática",
-  "notes": "• Download in-app com barra de progressão fluida em tempo real\n• Instalação automática imediata ao atingir 100%\n• Co-Piloto por Voz em Português com alertas inteligentes\n• Reset de revisão (chave de boca) e degradação de óleo lubrificante\n• Calibração do ponto de embreagem e sangria do Câmbio Dualogic/GSR\n• Dinamômetro virtual (curva de potência CV e Torque na roda)\n• Osciloscópio da sonda lambda em tempo real",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.2/OBD-AJ-v1.2.2.apk"
+  "versionCode": 6,
+  "versionName": "1.2.3",
+  "title": "OBD AJ v1.2.3 - Assistente com IA, Teste de Bateria e Atualização Fluida",
+  "notes": "• Download in-app corrigido com barra de progresso em tempo real e instalador nativo automático\n• Assistente Mecânico com AJ IA: diagnóstico detalhado com causas e testes de multímetro\n• Teste de Partida e Saúde da Bateria (Cranking Test & Alternador)\n• Calibração de Roda Fônica (Fiat Fire P1300)\n• Co-Piloto por Voz em Português com alertas inteligentes\n• Reset de revisão e Calibração Dualogic/GSR",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.3/OBD-AJ-v1.2.3.apk"
 }

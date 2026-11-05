@@ -1,6 +1,7 @@
 package com.aj.obd.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,8 +16,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -24,6 +29,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
@@ -39,6 +45,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,6 +60,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.aj.obd.core.ai.AiDiagnosticReport
 import com.aj.obd.domain.model.DtcFault
 import com.aj.obd.ui.MainViewModel
 import com.aj.obd.ui.theme.AmberGlow
@@ -73,8 +82,18 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
     val actuatorMsg by viewModel.actuatorTestMessage.collectAsState()
     val autoDetectStatus by viewModel.autoDetectStatus.collectAsState()
     val flexFuelStatus by viewModel.flexFuelStatus.collectAsState()
+    val batteryTestResult by viewModel.batteryTestResult.collectAsState()
+    val selectedAiReport by viewModel.selectedAiReport.collectAsState()
 
     var selectedTab by remember { mutableStateOf(0) } // 0: DTCs, 1: Atuadores & Procedimentos
+
+    // Diálogo com Laudo da Inteligência Artificial do Mecânico
+    if (selectedAiReport != null) {
+        AiDiagnosticDialog(
+            report = selectedAiReport!!,
+            onDismiss = { viewModel.dismissAiReport() }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -220,7 +239,10 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(dtcs) { dtc ->
-                        DtcItemCard(dtc = dtc)
+                        DtcItemCard(
+                            dtc = dtc,
+                            onDiagnoseWithAi = { viewModel.diagnoseDtcWithAi(it) }
+                        )
                     }
                 }
             }
@@ -463,6 +485,158 @@ fun DiagnosticsScreen(viewModel: MainViewModel) {
                     }
                 }
 
+                // Procedimento Especial: Teste de Bateria & Queda no Arranque (Cranking Test)
+                item {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, TelemetryGreen.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.BatteryChargingFull, contentDescription = null, tint = TelemetryGreen, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Teste de Partida & Saúde da Bateria",
+                                        color = TextPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "${batteryTestResult.healthPercentage}% Saúde",
+                                    color = if (batteryTestResult.healthPercentage >= 75) TelemetryGreen else AmberGlow,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Mede a queda instantânea de tensão durante a partida do motor. Queda abaixo de 9.6V indica bateria esgotada ou motor de arranque pesado.",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceAround
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "Repouso:", color = TextSecondary, fontSize = 10.sp)
+                                    Text(
+                                        text = "%.1fV".format(batteryTestResult.restingVoltage),
+                                        color = TextPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "Queda Arranque:", color = TextSecondary, fontSize = 10.sp)
+                                    Text(
+                                        text = "%.1fV".format(batteryTestResult.crankingVoltage),
+                                        color = if (batteryTestResult.crankingVoltage >= 9.6f) TelemetryGreen else RacingRed,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "Alternador:", color = TextSecondary, fontSize = 10.sp)
+                                    Text(
+                                        text = "%.1fV".format(batteryTestResult.chargingVoltage),
+                                        color = ElectricCyan,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = batteryTestResult.statusText,
+                                color = if (batteryTestResult.healthPercentage >= 75) TelemetryGreen else AmberGlow,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = batteryTestResult.recommendations,
+                                color = TextSecondary,
+                                fontSize = 10.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { viewModel.startBatteryTest() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = TelemetryGreen, contentColor = Color.Black),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "1. Iniciar Teste", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.finishBatteryTest() },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = "2. Ver Laudo", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Procedimento Especial: Calibração de Roda Fônica (Rotina 5.000 RPM Fiat Fire)
+                item {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Build, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Calibração de Roda Fônica (Fiat Fire P1300)",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Procedimento obrigatório após troca de correia dentada, sensor de rotação ou reset da injeção. Com o motor aquecido, acelere 3 vezes a 5.000 RPM para apagar a luz de injeção piscando.",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { viewModel.calibratePhonicWheelFiat() },
+                                colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(text = "Acionar Rotina de Roda Fônica", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
                 // Teste de Atuador: Ventoinha do Radiador (Velocidade Baixa / Relé 1)
                 item {
                     ActuatorCard(
@@ -565,7 +739,10 @@ fun ActuatorCard(
 }
 
 @Composable
-fun DtcItemCard(dtc: DtcFault) {
+fun DtcItemCard(
+    dtc: DtcFault,
+    onDiagnoseWithAi: (DtcFault) -> Unit = {}
+) {
     Card(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
@@ -612,6 +789,163 @@ fun DtcItemCard(dtc: DtcFault) {
                 color = TextSecondary,
                 fontSize = 11.sp
             )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                onClick = { onDiagnoseWithAi(dtc) },
+                colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(text = "Diagnosticar com AJ IA", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun AiDiagnosticDialog(
+    report: AiDiagnosticReport,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(6.dp)
+                .border(1.5.dp, AmberGlow.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Psychology, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "DIAGNÓSTICO AJ IA",
+                            color = AmberGlow,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    Text(
+                        text = report.dtcCode,
+                        color = RacingRed,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = report.dtcDescription,
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Resumo do Problema
+                Text(
+                    text = "O QUE SIGNIFICA:",
+                    color = ElectricCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = report.summary,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Causas mais prováveis
+                Text(
+                    text = "CAUSAS MAIS PROVÁVEIS:",
+                    color = AmberGlow,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                report.probableCauses.forEach { cause ->
+                    Text(
+                        text = "• $cause",
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Passo-a-passo de testes
+                Text(
+                    text = "GUIA DE TESTES DO MECÂNICO:",
+                    color = TelemetryGreen,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                report.testSteps.forEach { step ->
+                    Text(
+                        text = step,
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Peças recomendadas
+                Text(
+                    text = "PEÇAS PARA REVISAR / SUBSTITUIR:",
+                    color = ElectricCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                report.recommendedParts.forEach { part ->
+                    Text(
+                        text = "🔧 $part",
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "Entendido / Fechar Laudo", fontWeight = FontWeight.Black, fontSize = 12.sp)
+                }
+            }
         }
     }
 }
