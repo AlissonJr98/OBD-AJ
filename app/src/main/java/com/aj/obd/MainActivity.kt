@@ -67,6 +67,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.onActivityResumed()
+    }
 }
 
 @Composable

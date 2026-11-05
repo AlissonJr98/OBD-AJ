@@ -337,6 +337,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Verifica atualizações no GitHub Releases e abre o Pop-up
      */
     fun checkForUpdates(silent: Boolean = false) {
+        if (!silent) {
+            Toast.makeText(getApplication(), "Buscando atualizações no servidor...", Toast.LENGTH_SHORT).show()
+        }
         viewModelScope.launch {
             val res = updateChecker.checkForUpdates()
             if (res.isSuccess) {
@@ -408,6 +411,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val file = _downloadedApkFile.value
         if (file != null && file.exists()) {
             updateChecker.installApk(file)
+        }
+    }
+
+    fun onActivityResumed() {
+        val file = _downloadedApkFile.value
+        if (file != null && file.exists() && updateChecker.canRequestPackageInstalls()) {
+            installDownloadedApk()
         }
     }
 

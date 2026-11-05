@@ -32,24 +32,65 @@ data class AppUpdateInfo(
 
 class UpdateChecker(private val context: Context) {
 
+    private val rawVersionJsonUrl = "https://raw.githubusercontent.com/AlissonJr98/OBD-AJ/main/version.json"
     private val releasesApiUrl = "https://api.github.com/repos/AlissonJr98/OBD-AJ/releases/latest"
     private val repoReleasesPage = "https://github.com/AlissonJr98/OBD-AJ/releases"
 
     suspend fun checkForUpdates(): Result<AppUpdateInfo> = withContext(Dispatchers.IO) {
         val currentVersion = BuildConfig.VERSION_NAME
 
+        // 1. Tenta primeiro pelo version.json no raw.githubusercontent.com (SEM LIMITE DE TAXA DE API)
+        try {
+            val jsonUrl = URL("$rawVersionJsonUrl?t=${System.currentTimeMillis()}")
+            val conn = jsonUrl.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) OBD-AJ-Android-App")
+            conn.connectTimeout = 6000
+            conn.readTimeout = 6000
+
+            if (conn.responseCode == 200) {
+                val jsonString = conn.inputStream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                val json = JSONObject(jsonString)
+                val remoteVersion = json.optString("versionName", "").removePrefix("v").trim()
+                val title = json.optString("title", "Nova Atualização do OBD AJ")
+                val notes = json.optString("notes", "Melhorias de desempenho, design 3D e novas funções.")
+                val apkUrl = json.optString("apkUrl", "")
+
+                if (remoteVersion.isNotBlank() && apkUrl.isNotBlank()) {
+                    val hasUpdate = isVersionNewer(remoteVersion, currentVersion)
+                    return@withContext Result.success(
+                        AppUpdateInfo(
+                            hasUpdate = hasUpdate,
+                            latestVersion = remoteVersion,
+                            currentVersion = currentVersion,
+                            releaseTitle = title,
+                            releaseNotes = notes,
+                            downloadUrl = apkUrl
+                        )
+                    )
+                }
+            } else {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            // Continua para o fallback via GitHub Releases API
+        }
+
+        // 2. Fallback via GitHub Releases API
         try {
             val url = URL(releasesApiUrl)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("User-Agent", "OBD-AJ-Android-App")
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-            connection.connectTimeout = 7000
-            connection.readTimeout = 7000
+            connection.connectTimeout = 8000
+            connection.readTimeout = 8000
 
             val responseCode = connection.responseCode
             if (responseCode == 200) {
                 val jsonString = connection.inputStream.bufferedReader().use { it.readText() }
+                connection.disconnect()
                 val json = JSONObject(jsonString)
 
                 val tagName = json.optString("tag_name", "").removePrefix("v").trim()
@@ -75,7 +116,7 @@ class UpdateChecker(private val context: Context) {
                 Result.success(
                     AppUpdateInfo(
                         hasUpdate = hasUpdate,
-                        latestVersion = tagName.ifEmpty { "1.1.0" },
+                        latestVersion = tagName.ifEmpty { "1.2.2" },
                         currentVersion = currentVersion,
                         releaseTitle = releaseTitle,
                         releaseNotes = releaseNotes,
@@ -83,6 +124,7 @@ class UpdateChecker(private val context: Context) {
                     )
                 )
             } else {
+                connection.disconnect()
                 Result.success(
                     AppUpdateInfo(
                         hasUpdate = false,
@@ -118,7 +160,7 @@ class UpdateChecker(private val context: Context) {
                 destinationFile.delete()
             }
 
-            var currentUrl = if (apkUrl.contains("?")) "$apkUrl&t=${System.currentTimeMillis()}" else "$apkUrl?t=${System.currentTimeMillis()}"
+            var currentUrl = apkUrl
             var connection: HttpURLConnection
 
             // Segue redirects com segurança (GitHub Releases redireciona para storage S3 da AWS)
@@ -127,17 +169,21 @@ class UpdateChecker(private val context: Context) {
                 val urlObj = URL(currentUrl)
                 connection = urlObj.openConnection() as HttpURLConnection
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 12000
-                connection.readTimeout = 20000
-                connection.setRequestProperty("User-Agent", "OBD-AJ-Android-Updater")
-                connection.setRequestProperty("Accept", "application/octet-stream, application/vnd.android.package-archive, */*")
+                connection.connectTimeout = 15000
+                connection.readTimeout = 25000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) OBD-AJ-Android-Updater")
+                connection.setRequestProperty("Accept", "*/*")
 
                 val status = connection.responseCode
-                if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
+                if (status in listOf(301, 302, 303, 307, 308)) {
                     val newUrl = connection.getHeaderField("Location")
+                    connection.disconnect()
+                    if (newUrl.isNullOrBlank()) {
+                        throw IllegalStateException("Redirecionamento sem cabeçalho Location.")
+                    }
                     currentUrl = newUrl
                     redirects++
-                    if (redirects > 6) throw IllegalStateException("Muitos redirecionamentos ao baixar atualização.")
+                    if (redirects > 8) throw IllegalStateException("Muitos redirecionamentos ao baixar atualização.")
                     continue
                 }
                 break
@@ -147,26 +193,27 @@ class UpdateChecker(private val context: Context) {
             val input: InputStream = connection.inputStream
             val output = FileOutputStream(destinationFile)
 
-            val data = ByteArray(16 * 1024) // 16 KB buffer
+            val data = ByteArray(32 * 1024) // 32 KB buffer para download veloz
             var total: Long = 0
             var count: Int
             var lastUiUpdateTime = 0L
 
-            val totalMb = if (fileLength > 0) fileLength / (1024f * 1024f) else 35.8f
+            val estimatedTotalBytes = if (fileLength > 1_000_000L) fileLength else 37_500_000L
+            val totalMb = estimatedTotalBytes / (1024f * 1024f)
 
             while (input.read(data).also { count = it } != -1) {
                 total += count
                 output.write(data, 0, count)
 
                 val now = System.currentTimeMillis()
-                // Limita dispatch para a UI a cada 60ms para manter a tela fluida em 60fps
-                if (now - lastUiUpdateTime > 60L || (fileLength > 0 && total >= fileLength)) {
+                // Limita dispatch para a UI a cada 50ms para manter a tela a 60fps
+                if (now - lastUiUpdateTime > 50L || total >= estimatedTotalBytes) {
                     lastUiUpdateTime = now
-                    val progress = if (fileLength > 0) total.toFloat() / fileLength.toFloat() else 0.5f
+                    val progress = (total.toFloat() / estimatedTotalBytes.toFloat()).coerceIn(0f, 0.99f)
                     val downloadedMb = total / (1024f * 1024f)
 
                     withContext(Dispatchers.Main) {
-                        onProgress(progress.coerceIn(0f, 1f), downloadedMb, totalMb)
+                        onProgress(progress, downloadedMb, totalMb)
                     }
                 }
             }
@@ -174,6 +221,7 @@ class UpdateChecker(private val context: Context) {
             output.flush()
             output.close()
             input.close()
+            connection.disconnect()
 
             // Validação de integridade do arquivo APK baixado
             if (destinationFile.length() < 100_000L) {
@@ -237,12 +285,6 @@ class UpdateChecker(private val context: Context) {
             return false
         }
 
-        // Verifica permissão no Android 8.0+ para instalar pacotes desconhecidos
-        if (!canRequestPackageInstalls()) {
-            openInstallPermissionSettings()
-            return false
-        }
-
         try {
             val apkUri = FileProvider.getUriForFile(
                 context,
@@ -280,8 +322,12 @@ class UpdateChecker(private val context: Context) {
             return true
         } catch (e: Exception) {
             e.printStackTrace()
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "Erro ao abrir o instalador: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canRequestPackageInstalls()) {
+                openInstallPermissionSettings()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(context, "Erro ao abrir o instalador: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
             }
             return false
         }
