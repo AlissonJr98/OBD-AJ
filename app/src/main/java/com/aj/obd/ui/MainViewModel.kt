@@ -358,19 +358,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (res.isSuccess) {
                 val info = res.getOrThrow()
                 _appUpdateInfo.value = info
-                if (info.hasUpdate) {
+                if (info.hasUpdate || !silent) {
                     _showUpdateDialog.value = true
-                } else if (!silent) {
-                    Toast.makeText(
-                        getApplication(),
-                        "Você já está usando a versão mais recente (v${info.currentVersion})!",
-                        Toast.LENGTH_SHORT
-                    ).show()
                 }
             } else if (!silent) {
                 Toast.makeText(
                     getApplication(),
-                    "Não foi possível verificar atualizações. Verifique a internet.",
+                    "Não foi possível verificar atualizações. Verifique sua conexão com a internet.",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -381,6 +375,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_isDownloadingUpdate.value) {
             _showUpdateDialog.value = false
         }
+    }
+
+    fun openUpdateInBrowser(url: String) {
+        updateChecker.openInBrowser(url)
     }
 
     fun downloadUpdate(url: String) {

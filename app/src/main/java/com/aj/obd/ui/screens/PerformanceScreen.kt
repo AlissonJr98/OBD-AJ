@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aj.obd.core.performance.DragMeterState
 import com.aj.obd.ui.MainViewModel
+import com.aj.obd.ui.components.ShiftLightBar
 import com.aj.obd.ui.theme.AmberGlow
 import com.aj.obd.ui.theme.CarbonDark
 import com.aj.obd.ui.theme.ElectricCyan
@@ -60,6 +61,7 @@ fun PerformanceScreen(viewModel: MainViewModel) {
     val dynoResult by viewModel.dynoResult.collectAsState()
     val sensors by viewModel.sensors.collectAsState()
     val speedKmh = sensors.find { it.id == "speed" }?.currentValue ?: 0f
+    val currentRpm = sensors.find { it.id == "rpm" }?.currentValue ?: 0f
 
     LazyColumn(
         modifier = Modifier
@@ -137,6 +139,15 @@ fun PerformanceScreen(viewModel: MainViewModel) {
                     )
                 }
             }
+        }
+
+        // Shift Light Bar (F1 Sequencial de Troca de Marcha)
+        item {
+            ShiftLightBar(
+                rpm = currentRpm,
+                shiftRpm = 5300f,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         // Velocímetro Gigante & Força G

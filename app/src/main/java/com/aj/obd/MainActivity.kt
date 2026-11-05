@@ -105,7 +105,8 @@ fun MainApp(viewModel: MainViewModel) {
             updateError = updateError,
             onDismiss = { viewModel.dismissUpdateDialog() },
             onDownload = { url -> viewModel.downloadUpdate(url) },
-            onInstall = { viewModel.installDownloadedApk() }
+            onInstall = { viewModel.installDownloadedApk() },
+            onOpenInBrowser = { url -> viewModel.openUpdateInBrowser(url) }
         )
     }
 

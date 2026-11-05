@@ -1,7 +1,7 @@
 {
-  "versionCode": 6,
-  "versionName": "1.2.3",
-  "title": "OBD AJ v1.2.3 - Assistente com IA, Teste de Bateria e Atualização Fluida",
-  "notes": "• Download in-app corrigido com barra de progresso em tempo real e instalador nativo automático\n• Assistente Mecânico com AJ IA: diagnóstico detalhado com causas e testes de multímetro\n• Teste de Partida e Saúde da Bateria (Cranking Test & Alternador)\n• Calibração de Roda Fônica (Fiat Fire P1300)\n• Co-Piloto por Voz em Português com alertas inteligentes\n• Reset de revisão e Calibração Dualogic/GSR",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.3/OBD-AJ-v1.2.3.apk"
+  "versionCode": 7,
+  "versionName": "1.2.4",
+  "title": "OBD AJ v1.2.4 - Atualização In-App Blindada, Shift Light F1 e Ajuste A/F Flex",
+  "notes": "• Atualização In-App blindada com download suave, barra de progresso em tempo real e abertura garantida do instalador nativo\n• Abertura automática das configurações de fontes desconhecidas caso necessário, com retomada instantânea ao voltar ao app\n• Barra Shift Light estilo F1 com LEDs sequenciais e bipe sonoro de troca de marcha na Arrancada (0-100)\n• Ajuste Forçado de Combustível A/F (Etanol 9.0 x Gasolina 13.2) para centrais Flex\n• Emissão e compartilhamento de Laudo Técnico Veicular em PDF diretamente para o WhatsApp do cliente",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.4/OBD-AJ-v1.2.4.apk"
 }

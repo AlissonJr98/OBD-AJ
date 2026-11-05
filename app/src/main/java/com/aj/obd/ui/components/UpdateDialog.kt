@@ -28,6 +28,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,7 +64,8 @@ fun UpdateDialog(
     updateError: String? = null,
     onDismiss: () -> Unit,
     onDownload: (String) -> Unit,
-    onInstall: () -> Unit = {}
+    onInstall: () -> Unit = {},
+    onOpenInBrowser: (String) -> Unit = {}
 ) {
     Dialog(onDismissRequest = { if (!isDownloading) onDismiss() }) {
         Card(
@@ -90,8 +92,8 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "ATUALIZAÇÃO OFICIAL DISPONÍVEL",
-                    color = AmberGlow,
+                    text = if (updateInfo.hasUpdate) "ATUALIZAÇÃO OFICIAL DISPONÍVEL" else "VERSÃO MAIS RECENTE",
+                    color = if (updateInfo.hasUpdate) AmberGlow else TelemetryGreen,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp
@@ -127,7 +129,7 @@ fun UpdateDialog(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "Nova: v${updateInfo.latestVersion}",
+                            text = "Servidor: v${updateInfo.latestVersion}",
                             color = TelemetryGreen,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
@@ -304,15 +306,28 @@ fun UpdateDialog(
                             fontSize = 11.sp
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = { onDownload(updateInfo.downloadUrl) },
-                            colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "Tentar Novamente", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Button(
+                                onClick = { onDownload(updateInfo.downloadUrl) },
+                                colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = "Tentar de Novo", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { onOpenInBrowser(updateInfo.downloadUrl) },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text = "Via Navegador", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
                         }
                     }
                 } else {
@@ -331,23 +346,35 @@ fun UpdateDialog(
                         Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "ATUALIZAR DIRETO NO APP",
+                            text = if (updateInfo.hasUpdate) "ATUALIZAR DIRETO NO APP" else "BAIXAR / REINSTALAR APK",
                             fontWeight = FontWeight.Black,
                             fontSize = 13.sp
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Lembrar Mais Tarde",
-                            color = TextSecondary,
-                            fontSize = 12.sp
-                        )
+                        TextButton(onClick = { onOpenInBrowser(updateInfo.downloadUrl) }) {
+                            Text(
+                                text = "Abrir no Navegador",
+                                color = ElectricCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        TextButton(onClick = onDismiss) {
+                            Text(
+                                text = if (updateInfo.hasUpdate) "Lembrar Mais Tarde" else "Fechar",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }

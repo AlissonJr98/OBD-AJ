@@ -152,8 +152,12 @@ class UpdateChecker(private val context: Context) {
         onError: (error: String) -> Unit
     ) = withContext(Dispatchers.IO) {
         try {
-            val destinationDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
+            val destinationDir = File(baseDir, "updates")
+            if (!destinationDir.exists()) {
+                destinationDir.mkdirs()
+            }
 
             val destinationFile = File(destinationDir, "OBD-AJ-Update.apk")
             if (destinationFile.exists()) {
@@ -163,14 +167,14 @@ class UpdateChecker(private val context: Context) {
             var currentUrl = apkUrl
             var connection: HttpURLConnection
 
-            // Segue redirects com segurança (GitHub Releases redireciona para storage S3 da AWS)
+            // Segue redirects com segurança (GitHub Releases redireciona para storage S3/Azure da Microsoft)
             var redirects = 0
             while (true) {
                 val urlObj = URL(currentUrl)
                 connection = urlObj.openConnection() as HttpURLConnection
                 connection.instanceFollowRedirects = false
                 connection.connectTimeout = 15000
-                connection.readTimeout = 25000
+                connection.readTimeout = 30000
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) OBD-AJ-Android-Updater")
                 connection.setRequestProperty("Accept", "*/*")
 
@@ -185,6 +189,10 @@ class UpdateChecker(private val context: Context) {
                     redirects++
                     if (redirects > 8) throw IllegalStateException("Muitos redirecionamentos ao baixar atualização.")
                     continue
+                }
+                if (status != HttpURLConnection.HTTP_OK) {
+                    connection.disconnect()
+                    throw IllegalStateException("Servidor retornou status HTTP $status ao baixar atualização.")
                 }
                 break
             }
@@ -229,6 +237,10 @@ class UpdateChecker(private val context: Context) {
                 throw IllegalStateException("Arquivo da atualização incompleto ou corrompido.")
             }
 
+            // Garante permissões de leitura no filesystem Linux
+            destinationFile.setReadable(true, false)
+            destinationFile.setWritable(true, false)
+
             // Verifica cabeçalho ZIP ('P', 'K')
             val isZip = destinationFile.inputStream().use { stream ->
                 val header = ByteArray(2)
@@ -261,15 +273,24 @@ class UpdateChecker(private val context: Context) {
 
     fun openInstallPermissionSettings() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
-            ).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "Permita a instalação do OBD AJ para concluir a atualização.", Toast.LENGTH_LONG).show()
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}")
+                ).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(context, "Ative a permissão 'Permitir desta fonte' para atualizar o OBD AJ.", Toast.LENGTH_LONG).show()
+                }
+            } catch (_: Exception) {
+                try {
+                    val genericIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(genericIntent)
+                } catch (_: Exception) {}
             }
         }
     }
@@ -285,6 +306,17 @@ class UpdateChecker(private val context: Context) {
             return false
         }
 
+        // Garante permissões de leitura do arquivo no disco
+        file.setReadable(true, false)
+        file.setWritable(true, false)
+
+        // 1. CHECAGEM CRÍTICA DE PERMISSÃO ANTES DE DISPARAR O INTENT
+        // Se não tiver permissão, o Android ignora o Intent silenciosamente. Abrimos as configurações diretamente:
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canRequestPackageInstalls()) {
+            openInstallPermissionSettings()
+            return false
+        }
+
         try {
             val apkUri = FileProvider.getUriForFile(
                 context,
@@ -294,9 +326,11 @@ class UpdateChecker(private val context: Context) {
 
             val installIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
             }
 
             // Garante permissão explícita para os gerenciadores de instalação do Android
@@ -322,15 +356,20 @@ class UpdateChecker(private val context: Context) {
             return true
         } catch (e: Exception) {
             e.printStackTrace()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !canRequestPackageInstalls()) {
-                openInstallPermissionSettings()
-            } else {
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(context, "Erro ao abrir o instalador: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Erro ao abrir o instalador: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
             return false
         }
+    }
+
+    fun openInBrowser(downloadUrl: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
     }
 
     private fun isVersionNewer(remote: String, current: String): Boolean {
