@@ -1,10 +1,10 @@
 # OBD AJ — Scanner & Diagnóstico Automotivo Avançado
 
-[![Download APK](https://img.shields.io/badge/Download-APK_v1.0.0-f59e0b?style=for-the-badge&logo=android&logoColor=black)](https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.0.0/OBD-AJ-v1.0.0.apk)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-10b981?style=for-the-badge&logo=github)](https://github.com/AlissonJr98/OBD-AJ/releases/tag/v1.0.0)
+[![Download APK](https://img.shields.io/badge/Download-APK_v1.1.0-f59e0b?style=for-the-badge&logo=android&logoColor=black)](https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.1.0/OBD-AJ-v1.1.0.apk)
+[![Release](https://img.shields.io/badge/Release-v1.1.0-10b981?style=for-the-badge&logo=github)](https://github.com/AlissonJr98/OBD-AJ/releases/tag/v1.1.0)
 
-> ### 📲 [CLIQUE AQUI PARA BAIXAR O APK INSTALÁVEL (v1.0.0)](https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.0.0/OBD-AJ-v1.0.0.apk)
-> Baixe o arquivo **`OBD-AJ-v1.0.0.apk`** e instale diretamente no seu celular ou central multimídia Android (habilite "Instalar fontes desconhecidas" no Android se solicitado).
+> ### 📲 [CLIQUE AQUI PARA BAIXAR O APK INSTALÁVEL (v1.1.0)](https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.1.0/OBD-AJ-v1.1.0.apk)
+> Baixe o arquivo **`OBD-AJ-v1.1.0.apk`** ou atualize diretamente pelo pop-up interno do aplicativo.
 
 ---
 

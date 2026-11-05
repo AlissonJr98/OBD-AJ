@@ -303,7 +303,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun downloadUpdate(url: String) {
-        updateChecker.openDownloadUrl(url)
+        val targetVer = _appUpdateInfo.value?.latestVersion ?: "1.1.0"
+        updateChecker.startDirectDownloadAndInstall(url, "OBD-AJ-v$targetVer.apk")
         _showUpdateDialog.value = false
     }
 

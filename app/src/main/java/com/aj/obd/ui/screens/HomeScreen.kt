@@ -552,6 +552,26 @@ fun HomeScreen(
                 )
             }
         }
+
+        // Rodapé com Botão de Verificar Atualizações
+        item {
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = { viewModel.checkForUpdates(silent = false) },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AmberGlow),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Verificar Atualizações no App (v${com.aj.obd.BuildConfig.VERSION_NAME})",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
     }
 
     // Modal Bottom Sheet: Filtro e Seleção Completa de Veículos
