@@ -382,23 +382,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateChecker.openInBrowser(url)
     }
 
-    fun downloadViaBrowser(url: String) {
-        updateChecker.openInBrowser(url)
-        _showUpdateDialog.value = false
+    fun startInAppUpdate(downloadUrl: String) {
+        viewModelScope.launch {
+            _isDownloadingUpdate.value = true
+            _downloadProgress.value = 0f
+            _downloadProgressText.value = "Conectando ao servidor..."
+            _updateError.value = null
+            _downloadedApkFile.value = null
+
+            updateChecker.downloadApkInApp(
+                apkUrl = downloadUrl,
+                onProgress = { progress, downloadedMb, totalMb ->
+                    _downloadProgress.value = progress
+                    val pct = (progress * 100).toInt()
+                    val dStr = String.format(java.util.Locale.US, "%.1f", downloadedMb)
+                    val tStr = String.format(java.util.Locale.US, "%.1f", totalMb)
+                    _downloadProgressText.value = "Baixando: $pct% ($dStr MB / $tStr MB)"
+                },
+                onSuccess = { file ->
+                    _isDownloadingUpdate.value = false
+                    _downloadProgress.value = 1f
+                    _downloadProgressText.value = "Download 100% concluído! Abrindo instalador..."
+                    _downloadedApkFile.value = file
+                    Toast.makeText(getApplication(), "Download concluído! Abrindo instalador...", Toast.LENGTH_SHORT).show()
+                    updateChecker.installApk(file)
+                },
+                onError = { err ->
+                    _isDownloadingUpdate.value = false
+                    _updateError.value = err
+                    _downloadProgressText.value = err
+                    Toast.makeText(getApplication(), err, Toast.LENGTH_LONG).show()
+                }
+            )
+        }
     }
 
-    fun downloadViaDownloadManager(url: String, versionName: String) {
-        updateChecker.startDownloadManager(url, versionName)
-        _showUpdateDialog.value = false
+    fun installDownloadedApk() {
+        val file = _downloadedApkFile.value
+        if (file != null && file.exists()) {
+            updateChecker.installApk(file)
+        }
+    }
+
+    fun openInstallPermissionSettings() {
+        updateChecker.openInstallPermissionSettings()
+    }
+
+    fun canRequestPackageInstalls(): Boolean {
+        return updateChecker.canRequestPackageInstalls()
     }
 
     fun downloadUpdate(url: String) {
-        updateChecker.openInBrowser(url)
-        _showUpdateDialog.value = false
+        startInAppUpdate(url)
     }
 
     fun onActivityResumed() {
         refreshPairedDevices()
+        val file = _downloadedApkFile.value
+        if (file != null && file.exists() && updateChecker.canRequestPackageInstalls()) {
+            installDownloadedApk()
+        }
     }
 
     // Inicia e para o Datalogger CSV

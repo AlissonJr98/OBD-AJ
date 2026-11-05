@@ -1,7 +1,7 @@
 {
-  "versionCode": 10,
-  "versionName": "1.2.7",
-  "title": "OBD AJ v1.2.7 - Correção Crítica de Leitura de Sensores & OBD-II Universal",
-  "notes": "• Correção Crítica: Leitura de sensores (RPM, Velocidade, Temperatura, MAP/Turbo e Bateria) agora compatível com 100% dos adaptadores ELM327 (parsers resilientes com busca por substring e cabeçalhos desativados).\n• Perfil Universal OBD-II adicionado como padrão: conecta e faz auto-busca de protocolo em qualquer veículo do mercado (Gasolina, Etanol, Flex, Diesel, GNV).\n• Leitura e Limpeza Universal de Códigos de Falha (DTC Mode 03 / Mode 04) integrada para todos os carros.\n• Limpeza automática do buffer do stream Bluetooth antes de cada comando para evitar respostas defasadas ou travamentos.",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.7/OBD-AJ-v1.2.7.apk"
+  "versionCode": 11,
+  "versionName": "1.2.8",
+  "title": "OBD AJ v1.2.8 - Atualização 100% In-App & Correções de Leitura",
+  "notes": "• Atualização 100% Direta no App: Baixa o APK sem sair para o navegador com barra de progresso em tempo real e abre o instalador nativo do Android automaticamente.\n• Correção Crítica na Leitura de Sensores: Parsers com busca flexível de substring e auto-busca universal de protocolo OBD-II (compatível com clones ELM327 Bluetooth v1.5/v2.1).\n• Leitura e Limpeza Universal de DTC (Modo 03 e Modo 04 padrão OBD-II) para todos os veículos.\n• Drenagem automática do buffer Bluetooth para evitar perda de sincronia.",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.8/OBD-AJ-v1.2.8.apk"
 }

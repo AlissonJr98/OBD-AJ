@@ -1,5 +1,12 @@
 package com.aj.obd.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,18 +24,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,20 +55,30 @@ import com.aj.obd.R
 import com.aj.obd.core.update.AppUpdateInfo
 import com.aj.obd.ui.theme.AmberGlow
 import com.aj.obd.ui.theme.ElectricCyan
+import com.aj.obd.ui.theme.RacingRed
 import com.aj.obd.ui.theme.SurfaceDark
 import com.aj.obd.ui.theme.SurfaceVariantDark
 import com.aj.obd.ui.theme.TelemetryGreen
 import com.aj.obd.ui.theme.TextPrimary
 import com.aj.obd.ui.theme.TextSecondary
+import java.io.File
 
 @Composable
 fun UpdateDialog(
     updateInfo: AppUpdateInfo,
+    isDownloading: Boolean = false,
+    downloadProgress: Float = 0f,
+    downloadProgressText: String = "",
+    downloadedFile: File? = null,
+    updateError: String? = null,
+    canInstall: Boolean = true,
     onDismiss: () -> Unit,
-    onDownloadBrowser: (String) -> Unit,
-    onDownloadManager: (String, String) -> Unit
+    onDownload: (String) -> Unit,
+    onInstall: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onOpenInBrowser: (String) -> Unit = {}
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = { if (!isDownloading) onDismiss() }) {
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceDark),
@@ -81,7 +103,7 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = if (updateInfo.hasUpdate) "ATUALIZAÇÃO OFICIAL DISPONÍVEL" else "VERSÃO ATUALIZADA",
+                    text = if (updateInfo.hasUpdate) "ATUALIZAÇÃO OFICIAL DISPONÍVEL" else "VERSÃO MAIS RECENTE",
                     color = if (updateInfo.hasUpdate) AmberGlow else TelemetryGreen,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
@@ -118,7 +140,7 @@ fun UpdateDialog(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "Servidor: v${updateInfo.latestVersion}",
+                            text = "Nova: v${updateInfo.latestVersion}",
                             color = TelemetryGreen,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
@@ -129,86 +151,254 @@ fun UpdateDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Notas da versão / Changelog
-                Text(
-                    text = "Novidades desta versão:",
-                    color = TextSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(6.dp))
+                // =========================================================================
+                // ESTADO 1: DOWNLOAD EM ANDAMENTO (BARRA DE PROGRESSO NO APP)
+                // =========================================================================
+                if (isDownloading) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceVariantDark, RoundedCornerShape(10.dp))
+                            .border(1.dp, AmberGlow.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = AmberGlow,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "BAIXANDO NO APP...",
+                                color = AmberGlow,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(115.dp)
-                        .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = updateInfo.releaseNotes.ifBlank { "• Correção da conexão Bluetooth com o scanner OBD\n• Solicitação automática de permissões\n• Download direto do APK pelo navegador" },
-                        color = TextPrimary,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
-                    )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = AmberGlow,
+                            trackColor = Color.Black.copy(alpha = 0.5f)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = downloadProgressText.ifBlank { "Baixando pacote APK oficial..." },
+                            color = TextPrimary,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Por favor, aguarde o término sem fechar o app.",
+                            color = TextSecondary,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
+                // =========================================================================
+                // ESTADO 2: DOWNLOAD CONCLUÍDO (PRONTO PARA INSTALAR)
+                // =========================================================================
+                else if (downloadedFile != null && downloadedFile.exists()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceVariantDark, RoundedCornerShape(10.dp))
+                            .border(1.dp, TelemetryGreen.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = TelemetryGreen,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "DOWNLOAD CONCLUÍDO (100%)",
+                            color = TelemetryGreen,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (canInstall)
+                                "O arquivo está pronto. Toque no botão abaixo para abrir o instalador nativo do Android."
+                            else
+                                "O Android requer autorização para instalar apps deste aplicativo. Toque para conceder e instalar.",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
 
-                Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                // Botão Primário: Download pelo Navegador (100% à prova de falhas)
-                Button(
-                    onClick = { onDownloadBrowser(updateInfo.downloadUrl) },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AmberGlow,
-                        contentColor = Color.Black
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "BAIXAR APK NO NAVEGADOR (CHROME)",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 12.sp
-                    )
+                        if (canInstall) {
+                            Button(
+                                onClick = onInstall,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = TelemetryGreen,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                            ) {
+                                Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "INSTALAR ATUALIZAÇÃO AGORA",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = onRequestPermission,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AmberGlow,
+                                    contentColor = Color.Black
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "AUTORIZAR E INSTALAR",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Botão Secundário: Download via DownloadManager (Barra de Notificações)
-                OutlinedButton(
-                    onClick = { onDownloadManager(updateInfo.downloadUrl, updateInfo.latestVersion) },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Baixar via Notificação do Celular",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
+                // =========================================================================
+                // ESTADO 3: ERRO NO DOWNLOAD
+                // =========================================================================
+                else if (updateError != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceVariantDark, RoundedCornerShape(10.dp))
+                            .border(1.dp, RacingRed.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = RacingRed, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "FALHA NO DOWNLOAD",
+                                color = RacingRed,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = updateError,
+                            color = TextPrimary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { onDownload(updateInfo.downloadUrl) },
+                            colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = Color.Black),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "TENTAR NOVAMENTE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                // =========================================================================
+                // ESTADO 4: INICIAL - PRONTO PARA BAIXAR
+                // =========================================================================
+                else {
+                    // Notas da versão / Changelog
                     Text(
-                        text = "Lembrar Mais Tarde / Fechar",
+                        text = "Novidades desta versão:",
                         color = TextSecondary,
-                        fontSize = 11.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(115.dp)
+                            .background(SurfaceVariantDark, RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = updateInfo.releaseNotes.ifBlank { "• Correção da leitura de sensores em adaptadores ELM327\n• Perfil universal OBD-II para todos os veículos\n• Leitura e limpeza universal de falhas (DTC)" },
+                            color = TextPrimary,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Botão Principal: ATUALIZAR DIRETO NO APP
+                    Button(
+                        onClick = { onDownload(updateInfo.downloadUrl) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AmberGlow,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (updateInfo.hasUpdate) "ATUALIZAR AGORA (NO APP)" else "BAIXAR / REINSTALAR NO APP",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Lembrar Mais Tarde / Fechar",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }

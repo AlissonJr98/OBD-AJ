@@ -128,9 +128,17 @@ fun MainApp(viewModel: MainViewModel) {
     if (showUpdateDialog && appUpdateInfo != null) {
         UpdateDialog(
             updateInfo = appUpdateInfo!!,
+            isDownloading = isDownloadingUpdate,
+            downloadProgress = downloadProgress,
+            downloadProgressText = downloadProgressText,
+            downloadedFile = downloadedApkFile,
+            updateError = updateError,
+            canInstall = viewModel.canRequestPackageInstalls(),
             onDismiss = { viewModel.dismissUpdateDialog() },
-            onDownloadBrowser = { url -> viewModel.downloadViaBrowser(url) },
-            onDownloadManager = { url, version -> viewModel.downloadViaDownloadManager(url, version) }
+            onDownload = { url -> viewModel.startInAppUpdate(url) },
+            onInstall = { viewModel.installDownloadedApk() },
+            onRequestPermission = { viewModel.openInstallPermissionSettings() },
+            onOpenInBrowser = { url -> viewModel.openUpdateInBrowser(url) }
         )
     }
 
