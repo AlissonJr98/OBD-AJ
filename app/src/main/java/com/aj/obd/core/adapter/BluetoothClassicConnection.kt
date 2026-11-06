@@ -56,7 +56,6 @@ class BluetoothClassicConnection(
             bluetoothAdapter.cancelDiscovery()
         } catch (_: Exception) {}
 
-        var connectedSocket: BluetoothSocket? = null
         var lastError: Exception? = null
 
         // 4 Estratégias de Conexão idênticas ao AlfaOBD e Car Scanner
@@ -88,7 +87,7 @@ class BluetoothClassicConnection(
                     inputStream = sock.inputStream
                     outputStream = sock.outputStream
 
-                    _state.value = ConnectionState.Connecting(devName, "Validando resposta do ELM327...")
+                    _state.value = ConnectionState.Connecting(devName, "Identificando chip ELM327...")
 
                     // Drena e limpa a linha UART
                     try {
@@ -102,13 +101,15 @@ class BluetoothClassicConnection(
 
                     if (handshakeRes.isSuccess) {
                         val info = handshakeRes.getOrThrow()
-                        connectedSocket = sock
                         _state.value = ConnectionState.Connected(
                             deviceName = devName,
                             adapterType = info.type,
                             firmwareVersion = info.version,
                             batteryVoltage = info.voltage,
-                            isHighSpeedCapable = info.isHighSpeedCapable
+                            isHighSpeedCapable = info.isHighSpeedCapable,
+                            isEcuConnected = info.isEcuConnected,
+                            detectedProtocol = info.detectedProtocol,
+                            ignitionStatus = info.ignitionStatus
                         )
                         return@withContext true
                     } else {
@@ -153,6 +154,12 @@ class BluetoothClassicConnection(
     }
 
     override suspend fun sendRawCommand(cmd: String, timeoutMs: Long): Result<String> = withContext(Dispatchers.IO) {
+        val s = socket
+        if (s == null || !s.isConnected) {
+            _state.value = ConnectionState.Error("Conexão Bluetooth perdida com o scanner.")
+            return@withContext Result.failure(IOException("Socket Bluetooth desconectado"))
+        }
+
         val inStream = inputStream ?: return@withContext Result.failure(IOException("Não conectado"))
         val outStream = outputStream ?: return@withContext Result.failure(IOException("Não conectado"))
 
@@ -175,7 +182,12 @@ class BluetoothClassicConnection(
             while (System.currentTimeMillis() - startTime < timeoutMs) {
                 if (inStream.available() > 0) {
                     charRead = inStream.read()
-                    if (charRead == -1) break
+                    if (charRead == -1) {
+                        // EOF -> Dispositivo Bluetooth desconectou fisicamente
+                        disconnect()
+                        _state.value = ConnectionState.Error("Conexão Bluetooth caiu (Dispositivo desconectado)")
+                        return@withContext Result.failure(IOException("Conexão Bluetooth perdida (EOF)"))
+                    }
                     val ch = charRead.toChar()
                     if (ch == '>') {
                         break
@@ -199,6 +211,11 @@ class BluetoothClassicConnection(
             }
 
             Result.success(clean)
+        } catch (e: IOException) {
+            // Se houve falha de E/S no Bluetooth, o link caiu!
+            disconnect()
+            _state.value = ConnectionState.Error("Conexão Bluetooth interrompida: ${e.localizedMessage}")
+            Result.failure(e)
         } catch (e: Exception) {
             Result.failure(e)
         }

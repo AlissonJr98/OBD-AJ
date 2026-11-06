@@ -1,7 +1,7 @@
 {
-  "versionCode": 12,
-  "versionName": "1.2.9",
-  "title": "OBD AJ v1.2.9 - Conexão Real Bluetooth ELM327 (AlfaOBD & Car Scanner)",
-  "notes": "• Correção da Conexão Bluetooth: Implementado o mesmo pipeline de 4 estratégias (SPP padrão, SPP inseguro, porta RFCOMM 1 direta e porta 1 insegura) utilizado no AlfaOBD e Car Scanner.\n• Fim das 'Conexões Falsas': O aplicativo agora valida ativamente a resposta real do microcontrolador ELM327 (ATZ/ATE0/ATI) antes de considerar o scanner conectado.\n• Buffer e Streams Nativos de Alta Velocidade: Leitura direta em ASCII sem buffers intermediários com timeout calibrado ATST32.\n• Cancelamento obrigatório de discovery antes do pareamento para máxima estabilidade do link Bluetooth.",
-  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.2.9/OBD-AJ-v1.2.9.apk"
+  "versionCode": 13,
+  "versionName": "1.3.0",
+  "title": "OBD AJ v1.3.0 - Detecção Real de Pós-Chave (Ignição), Telemetria Ativa & Alerta de Queda de Conexão",
+  "notes": "• Detecção Real do 1º Estágio da Chave (Pós-Chave): O app agora diferencia 'Adaptador Bluetooth Conectado' de 'Central (ECU) Ativa', permitindo diagnóstico e cockpit ativos com o motor parado e chave ligada.\n• Alerta Imediato de Queda de Conexão: Detecção instantânea de perda de sinal Bluetooth ou desconexão física do scanner com aviso sonoro e visual.\n• Telemetria ao Vivo de Alta Frequência: Medidor de pacotes por segundo (TX/RX), leitura de temperatura real, pressão MAP e tensão da bateria mesmo com o motor desligado.\n• Banner Informativo no Cockpit e Tela Inicial: Indicadores claros em verde/amarelo/vermelho idênticos aos scanners profissionais (AlfaOBD e Car Scanner).",
+  "apkUrl": "https://github.com/AlissonJr98/OBD-AJ/releases/download/v1.3.0/OBD-AJ-v1.3.0.apk"
 }

@@ -10,7 +10,11 @@ sealed interface ConnectionState {
         val adapterType: AdapterType,
         val firmwareVersion: String,
         val batteryVoltage: Float,
-        val isHighSpeedCapable: Boolean
+        val isHighSpeedCapable: Boolean,
+        val isEcuConnected: Boolean = false,
+        val detectedProtocol: String = "OBD-II Auto",
+        val ignitionStatus: String = "Pós-Chave Desligado",
+        val packetsPerSecond: Int = 0
     ) : ConnectionState
     data class Error(val message: String, val canRetry: Boolean = true) : ConnectionState
 }

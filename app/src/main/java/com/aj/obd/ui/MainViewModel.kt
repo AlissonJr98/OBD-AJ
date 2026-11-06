@@ -337,6 +337,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var telemetryJob: Job? = null
 
+    // Status Avançado de Comunicação com a ECU e Ignição (Estilo AlfaOBD e Car Scanner)
+    private val _isEcuConnected = MutableStateFlow(false)
+    val isEcuConnected: StateFlow<Boolean> = _isEcuConnected.asStateFlow()
+
+    private val _ignitionStatus = MutableStateFlow("Aguardando Conexão")
+    val ignitionStatus: StateFlow<String> = _ignitionStatus.asStateFlow()
+
+    private val _telemetryFps = MutableStateFlow(0)
+    val telemetryFps: StateFlow<Int> = _telemetryFps.asStateFlow()
+
+    private val _detectedProtocol = MutableStateFlow("OBD-II Auto")
+    val detectedProtocol: StateFlow<String> = _detectedProtocol.asStateFlow()
+
     init {
         viewModelScope.launch {
             dbHelper.initializeDatabase()
@@ -569,8 +582,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Toast.makeText(getApplication(), "Conectando ao scanner OBD...", Toast.LENGTH_SHORT).show()
             val ok = currentConnection.connect(address)
             if (ok) {
-                Toast.makeText(getApplication(), "✅ Scanner Conectado com Sucesso!", Toast.LENGTH_SHORT).show()
-                delay(700)
+                val conn = currentConnection.state.value as? ConnectionState.Connected
+                _isEcuConnected.value = conn?.isEcuConnected ?: false
+                _ignitionStatus.value = conn?.ignitionStatus ?: "Conectado"
+                _detectedProtocol.value = conn?.detectedProtocol ?: "OBD-II Auto"
+
+                if (conn?.isEcuConnected == true) {
+                    Toast.makeText(getApplication(), "✅ Scanner e Central (ECU) Conectados!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(getApplication(), "⚠️ Scanner Conectado! Gire a chave para o 1º estágio (Pós-Chave).", Toast.LENGTH_LONG).show()
+                }
+
+                delay(600)
                 _showConnectionSheet.value = false
                 _selectedEcu.value?.let { configureEcuOnAdapter(it) }
                 startTelemetryLoop()
@@ -586,6 +609,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             stopTelemetryLoop()
             currentConnection.disconnect()
             _isSimulatorActive.value = false
+            _isEcuConnected.value = false
+            _ignitionStatus.value = "Desconectado"
+            _telemetryFps.value = 0
             resetCockpitData()
         }
     }
@@ -593,72 +619,129 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startTelemetryLoop() {
         telemetryJob?.cancel()
         telemetryJob = viewModelScope.launch {
+            var packetCounter = 0
+            var lastFpsCalcTime = System.currentTimeMillis()
+            var consecutiveEcuFailures = 0
+
             while (isActive) {
-                if (currentConnection.state.value is ConnectionState.Connected && !_isTelemetryPaused.value) {
-                    val ecu = _selectedEcu.value
-                    val isKwp = ecu?.protocol == ProtocolType.KLINE_KWP2000_FAST
+                val conn = currentConnection.state.value
+                if (conn !is ConnectionState.Connected || _isTelemetryPaused.value) {
+                    delay(300)
+                    continue
+                }
 
-                    val updated = _sensors.value.map { sensor ->
-                        val cmd = if (isKwp && sensor.id == "rpm") "2101" else sensor.didHex
-                        val rawRes = currentConnection.sendRawCommand(cmd).getOrNull() ?: ""
-                        val parsedVal = parseSensorValue(sensor, rawRes, isKwp)
+                val ecu = _selectedEcu.value
+                val isKwp = ecu?.protocol == ProtocolType.KLINE_KWP2000_FAST
 
-                        if (sensor.id == "rpm" && parsedVal > _peakRpm.value) _peakRpm.value = parsedVal
-                        if (sensor.id == "speed" && parsedVal > _peakSpeed.value) _peakSpeed.value = parsedVal
-                        if (sensor.id == "turbo" && parsedVal > _peakTurbo.value) _peakTurbo.value = parsedVal
-                        if (sensor.id == "coolant" && parsedVal > _peakCoolant.value) _peakCoolant.value = parsedVal
+                // FASE 1: Se a ECU ainda não respondeu (ex: carro estava com a chave desligada)
+                if (!_isEcuConnected.value) {
+                    val testRes = currentConnection.sendRawCommand("0100", timeoutMs = 3000).getOrDefault("")
+                    val cleanTest = testRes.replace(" ", "").replace("\r", "").replace("\n", "").trim().uppercase()
 
-                        sensor.copy(currentValue = parsedVal)
-                    }
-                    _sensors.value = updated
-
-                    val currentSpeed = updated.find { it.id == "speed" }?.currentValue ?: 0f
-                    val currentRpm = updated.find { it.id == "rpm" }?.currentValue ?: 0f
-                    val currentCoolant = updated.find { it.id == "coolant" }?.currentValue ?: 0f
-                    val currentBattery = updated.find { it.id == "battery" }?.currentValue ?: 0f
-
-                    // Atualiza o medidor de arrancada (0-100 km/h)
-                    val run = performanceMeter.updateSpeed(currentSpeed)
-                    _performanceRun.value = run
-                    _dragMeterState.value = performanceMeter.state
-
-                    // Atualiza Computador de Bordo Financeiro
-                    val trip = tripComputer.update(currentSpeed, currentRpm)
-                    _tripStats.value = trip
-
-                    // Atualiza Dinamômetro Virtual se estiver medindo
-                    if (virtualDyno.isMeasuring) {
-                        _dynoResult.value = virtualDyno.update(currentSpeed, currentRpm)
-                    }
-
-                    // Gráfico Osciloscópio da Sonda Lambda (0.1V - 0.9V)
-                    val t = System.currentTimeMillis() / 450.0
-                    val lambdaVal = if (currentRpm > 400f) {
-                        (0.50f + 0.35f * Math.sin(t).toFloat() + ((Math.random().toFloat() - 0.5f) * 0.04f)).coerceIn(0.08f, 0.95f)
+                    if (cleanTest.contains("4100") || cleanTest.contains("410C") || cleanTest.contains("4105")) {
+                        _isEcuConnected.value = true
+                        _ignitionStatus.value = "Chave Ligada (ECU Ativa)"
+                        val atdp = currentConnection.sendRawCommand("ATDP").getOrDefault("OBD-II").trim()
+                        _detectedProtocol.value = atdp.lines().firstOrNull() ?: atdp
+                        voiceCopilot.speak("Central do veículo detectada. Chave ligada.", priority = true)
                     } else {
-                        0.45f
-                    }
-                    _currentLambdaVoltage.value = lambdaVal
-                    _lambdaHistory.value = (_lambdaHistory.value + lambdaVal).takeLast(60)
-
-                    // Atualiza teste de saúde da bateria e queda de tensão no arranque
-                    _batteryTestResult.value = batteryTester.updateVoltage(currentBattery, currentRpm)
-
-                    // Alertas por Voz (Co-piloto Inteligente em Português)
-                    if (currentCoolant >= 102f) {
-                        voiceCopilot.speak("Atenção! Temperatura do motor elevada: ${currentCoolant.toInt()} graus!", priority = true)
-                    } else if (currentBattery in 0.1f..11.8f && currentRpm > 400f) {
-                        voiceCopilot.speak("Aviso: Tensão da bateria baixa. Verifique o alternador.")
-                    } else if (currentRpm >= 5500f) {
-                        voiceCopilot.speak("Atenção: Limite de rotação atingido! Troque de marcha.", priority = true)
-                    }
-
-                    // Grava instantâneo no Datalogger se ativo
-                    if (_isDatalogging.value) {
-                        telemetryLogger.logSnapshot(updated)
+                        // Atualiza tensão da bateria mesmo com a chave desligada
+                        val battVolt = currentConnection.readBatteryVoltage()
+                        val updatedSensors = _sensors.value.map { s ->
+                            if (s.id == "battery") s.copy(currentValue = battVolt) else s
+                        }
+                        _sensors.value = updatedSensors
+                        _ignitionStatus.value = "Chave Desligada (Gire a chave para o 1º estágio)"
+                        delay(1000)
+                        continue
                     }
                 }
-                delay(120)
+
+                // FASE 2: Telemetria Ativa dos Sensores
+                var anySuccessThisCycle = false
+                val updated = _sensors.value.map { sensor ->
+                    val cmd = if (isKwp && sensor.id == "rpm") "2101" else sensor.didHex
+                    val rawRes = currentConnection.sendRawCommand(cmd, timeoutMs = 800).getOrNull() ?: ""
+                    val parsedVal = parseSensorValue(sensor, rawRes, isKwp)
+
+                    val clean = rawRes.replace(" ", "").replace("\r", "").replace("\n", "").trim().uppercase()
+                    if (clean.contains("41") || clean.contains("61") || (sensor.id == "battery" && parsedVal > 5f)) {
+                        anySuccessThisCycle = true
+                        packetCounter++
+                    }
+
+                    if (sensor.id == "rpm" && parsedVal > _peakRpm.value) _peakRpm.value = parsedVal
+                    if (sensor.id == "speed" && parsedVal > _peakSpeed.value) _peakSpeed.value = parsedVal
+                    if (sensor.id == "turbo" && parsedVal > _peakTurbo.value) _peakTurbo.value = parsedVal
+                    if (sensor.id == "coolant" && parsedVal > _peakCoolant.value) _peakCoolant.value = parsedVal
+
+                    sensor.copy(currentValue = parsedVal)
+                }
+                _sensors.value = updated
+
+                // Monitora se a ECU parou de responder (ex: usuário desligou a chave do carro)
+                if (!anySuccessThisCycle) {
+                    consecutiveEcuFailures++
+                    if (consecutiveEcuFailures >= 5) {
+                        _isEcuConnected.value = false
+                        _ignitionStatus.value = "Chave Desligada ou ECU Ocupada"
+                        consecutiveEcuFailures = 0
+                    }
+                } else {
+                    consecutiveEcuFailures = 0
+                    _isEcuConnected.value = true
+                    _ignitionStatus.value = "Chave Ligada (ECU Ativa)"
+                }
+
+                // Calcula pacotes por segundo (FPS)
+                val now = System.currentTimeMillis()
+                if (now - lastFpsCalcTime >= 1000L) {
+                    _telemetryFps.value = packetCounter
+                    packetCounter = 0
+                    lastFpsCalcTime = now
+                }
+
+                // Atualiza demais sistemas (arrancada, trip computer, dyno, osciloscópio, alertas)
+                val currentSpeed = updated.find { it.id == "speed" }?.currentValue ?: 0f
+                val currentRpm = updated.find { it.id == "rpm" }?.currentValue ?: 0f
+                val currentCoolant = updated.find { it.id == "coolant" }?.currentValue ?: 0f
+                val currentBattery = updated.find { it.id == "battery" }?.currentValue ?: 0f
+
+                val run = performanceMeter.updateSpeed(currentSpeed)
+                _performanceRun.value = run
+                _dragMeterState.value = performanceMeter.state
+
+                val trip = tripComputer.update(currentSpeed, currentRpm)
+                _tripStats.value = trip
+
+                if (virtualDyno.isMeasuring) {
+                    _dynoResult.value = virtualDyno.update(currentSpeed, currentRpm)
+                }
+
+                val t = System.currentTimeMillis() / 450.0
+                val lambdaVal = if (currentRpm > 400f) {
+                    (0.50f + 0.35f * Math.sin(t).toFloat() + ((Math.random().toFloat() - 0.5f) * 0.04f)).coerceIn(0.08f, 0.95f)
+                } else {
+                    0.45f
+                }
+                _currentLambdaVoltage.value = lambdaVal
+                _lambdaHistory.value = (_lambdaHistory.value + lambdaVal).takeLast(60)
+
+                _batteryTestResult.value = batteryTester.updateVoltage(currentBattery, currentRpm)
+
+                if (currentCoolant >= 102f) {
+                    voiceCopilot.speak("Atenção! Temperatura do motor elevada: ${currentCoolant.toInt()} graus!", priority = true)
+                } else if (currentBattery in 0.1f..11.8f && currentRpm > 400f) {
+                    voiceCopilot.speak("Aviso: Tensão da bateria baixa. Verifique o alternador.")
+                } else if (currentRpm >= 5500f) {
+                    voiceCopilot.speak("Atenção: Limite de rotação atingido! Troque de marcha.", priority = true)
+                }
+
+                if (_isDatalogging.value) {
+                    telemetryLogger.logSnapshot(updated)
+                }
+
+                delay(60) // Alta velocidade (16 Hz)
             }
         }
     }

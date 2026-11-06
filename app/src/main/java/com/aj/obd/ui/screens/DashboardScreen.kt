@@ -71,6 +71,11 @@ fun DashboardScreen(viewModel: MainViewModel) {
     val isSimActive by viewModel.isSimulatorActive.collectAsState()
     val isPaused by viewModel.isTelemetryPaused.collectAsState()
 
+    val isEcuConnected by viewModel.isEcuConnected.collectAsState()
+    val ignitionStatus by viewModel.ignitionStatus.collectAsState()
+    val telemetryFps by viewModel.telemetryFps.collectAsState()
+    val detectedProtocol by viewModel.detectedProtocol.collectAsState()
+
     val peakRpm by viewModel.peakRpm.collectAsState()
     val peakSpeed by viewModel.peakSpeed.collectAsState()
     val peakTurbo by viewModel.peakTurbo.collectAsState()
@@ -182,8 +187,14 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = if (isEngineRunning) "Motor em Funcionamento" else if (isConnected) "Chave Ligada / Motor Parado" else "Aguardando Conexão",
-                        color = if (isEngineRunning) TelemetryGreen else if (isConnected) AmberGlow else TextSecondary,
+                        text = if (isEngineRunning) "🟢 Motor em Funcionamento"
+                               else if (isEcuConnected) "🟢 Chave Ligada (Pós-Chave) • ECU Ativa"
+                               else if (isConnected) "🟡 Chave Desligada • Aguardando 1º estágio"
+                               else "🔴 Scanner Desconectado",
+                        color = if (isEngineRunning) TelemetryGreen
+                                else if (isEcuConnected) ElectricCyan
+                                else if (isConnected) AmberGlow
+                                else RacingRed,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -256,6 +267,111 @@ fun DashboardScreen(viewModel: MainViewModel) {
                             tint = RacingRed,
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // Banner Informativo de Conexão e Ignição (Estilo Car Scanner / AlfaOBD)
+        item {
+            when {
+                connState is ConnectionState.Error -> {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = RacingRed.copy(alpha = 0.15f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, RacingRed, RoundedCornerShape(10.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = RacingRed, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "CONEXÃO COM O SCANNER PERDIDA",
+                                    color = RacingRed,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = (connState as ConnectionState.Error).message,
+                                    color = TextPrimary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+                isConnected && !isEcuConnected -> {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = AmberGlow.copy(alpha = 0.12f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, AmberGlow.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "SCANNER PRONTO • AGUARDANDO CHAVE (1º ESTÁGIO)",
+                                    color = AmberGlow,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    text = "Adaptador Bluetooth conectado (${"%.1f".format(batterySensor?.currentValue ?: 0f)}V). Gire a chave do carro para a posição ligada (pós-chave com as luzes do painel acesas) para ler os dados do motor.",
+                                    color = TextPrimary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+                isConnected && isEcuConnected -> {
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark.copy(alpha = 0.8f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, TelemetryGreen.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(TelemetryGreen)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ECU CONECTADA • $detectedProtocol",
+                                    color = TelemetryGreen,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            Text(
+                                text = "TX/RX: $telemetryFps pacotes/s",
+                                color = ElectricCyan,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

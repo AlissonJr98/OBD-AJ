@@ -31,7 +31,11 @@ class SimulatorConnection : ObdConnection {
             adapterType = AdapterType.SIMULATOR,
             firmwareVersion = "OBD AJ Virtual K-Line & CAN v2.0",
             batteryVoltage = simulatedBattery,
-            isHighSpeedCapable = true
+            isHighSpeedCapable = true,
+            isEcuConnected = true,
+            detectedProtocol = "Simulação CAN / K-Line",
+            ignitionStatus = "Chave Ligada (ECU Ativa)",
+            packetsPerSecond = 20
         )
         return true
     }

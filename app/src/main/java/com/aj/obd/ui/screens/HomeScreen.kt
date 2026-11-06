@@ -100,6 +100,10 @@ fun HomeScreen(
     val selectedVehicle by viewModel.selectedVehicle.collectAsState()
     val selectedEcu by viewModel.selectedEcu.collectAsState()
     val connState by viewModel.connectionState.collectAsState()
+    val isEcuConnected by viewModel.isEcuConnected.collectAsState()
+    val ignitionStatus by viewModel.ignitionStatus.collectAsState()
+    val telemetryFps by viewModel.telemetryFps.collectAsState()
+    val detectedProtocol by viewModel.detectedProtocol.collectAsState()
     val autoDetectStatus by viewModel.autoDetectStatus.collectAsState()
     val isAutoDetecting by viewModel.isAutoDetecting.collectAsState()
     val licenseState by viewModel.licenseState.collectAsState()
@@ -223,12 +227,14 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(statusColor)
+                                    .background(if (isConnected && isEcuConnected) TelemetryGreen else statusColor)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "SCANNER AUTOMOTIVO",
-                                color = statusColor,
+                                text = if (isConnected && isEcuConnected) "ECU ONLINE • CHAVE LIGADA"
+                                       else if (isConnected) "ADAPTADOR CONECTADO • CHAVE DESLIGADA"
+                                       else "SCANNER AUTOMOTIVO",
+                                color = if (isConnected && isEcuConnected) TelemetryGreen else statusColor,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.sp
@@ -251,12 +257,18 @@ fun HomeScreen(
 
                         Text(
                             text = when (val s = connState) {
-                                is ConnectionState.Connected -> "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V"
+                                is ConnectionState.Connected -> {
+                                    if (isEcuConnected) {
+                                        "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V • $telemetryFps msgs/s"
+                                    } else {
+                                        "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V • Gire a chave para o 1º estágio"
+                                    }
+                                }
                                 is ConnectionState.Connecting -> s.step
                                 is ConnectionState.Error -> s.message
                                 ConnectionState.Disconnected -> "Toque aqui para conectar via Bluetooth"
                             },
-                            color = if (isConnected) ElectricCyan else TextSecondary,
+                            color = if (isConnected && isEcuConnected) TelemetryGreen else if (isConnected) AmberGlow else TextSecondary,
                             fontSize = 11.sp,
                             fontWeight = if (isConnected) FontWeight.Bold else FontWeight.Normal
                         )
@@ -267,20 +279,22 @@ fun HomeScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (isConnected) TelemetryGreen.copy(alpha = 0.2f)
+                                if (isConnected && isEcuConnected) TelemetryGreen.copy(alpha = 0.2f)
                                 else AmberGlow.copy(alpha = 0.2f)
                             )
                             .border(
                                 1.dp,
-                                if (isConnected) TelemetryGreen else AmberGlow,
+                                if (isConnected && isEcuConnected) TelemetryGreen else AmberGlow,
                                 RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isConnected) "ONLINE" else "CONECTAR",
-                            color = if (isConnected) TelemetryGreen else AmberGlow,
+                            text = if (isConnected && isEcuConnected) "ONLINE"
+                                   else if (isConnected) "PÓS-CHAVE?"
+                                   else "CONECTAR",
+                            color = if (isConnected && isEcuConnected) TelemetryGreen else AmberGlow,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.5.sp
