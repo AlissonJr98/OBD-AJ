@@ -176,23 +176,37 @@ class BluetoothClassicConnection(
 
             val responseBuffer = ByteArrayOutputStream()
             val startTime = System.currentTimeMillis()
-            var charRead: Int
+            val buffer = ByteArray(512)
 
-            // Lê byte a byte até o caractere de prompt '>' do ELM ou estourar o timeout
+            // Lê em blocos até o caractere de prompt '>' do ELM ou estourar o timeout
             while (System.currentTimeMillis() - startTime < timeoutMs) {
-                if (inStream.available() > 0) {
-                    charRead = inStream.read()
-                    if (charRead == -1) {
-                        // EOF -> Dispositivo Bluetooth desconectou fisicamente
+                val available = try { inStream.available() } catch (e: IOException) { -1 }
+                if (available == -1) {
+                    disconnect()
+                    _state.value = ConnectionState.Error("Conexão Bluetooth perdida com o scanner.")
+                    return@withContext Result.failure(IOException("Socket Bluetooth desconectado"))
+                }
+
+                if (available > 0) {
+                    val toRead = minOf(available, buffer.size)
+                    val count = inStream.read(buffer, 0, toRead)
+                    if (count == -1) {
                         disconnect()
                         _state.value = ConnectionState.Error("Conexão Bluetooth caiu (Dispositivo desconectado)")
                         return@withContext Result.failure(IOException("Conexão Bluetooth perdida (EOF)"))
                     }
-                    val ch = charRead.toChar()
-                    if (ch == '>') {
+                    var gotPrompt = false
+                    for (i in 0 until count) {
+                        val b = buffer[i]
+                        if (b.toInt().toChar() == '>') {
+                            gotPrompt = true
+                            break
+                        }
+                        responseBuffer.write(b.toInt())
+                    }
+                    if (gotPrompt) {
                         break
                     }
-                    responseBuffer.write(charRead)
                 } else {
                     delay(4) // Cede processamento de coroutine enquanto aguarda o rádio BT
                 }

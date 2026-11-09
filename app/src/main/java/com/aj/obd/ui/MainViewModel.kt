@@ -355,9 +355,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             dbHelper.initializeDatabase()
             // Verifica atualizações automaticamente na inicialização
             checkForUpdates(silent = true)
+            // Auto-conexão transparente no último scanner utilizado (estilo Car Scanner / AlfaOBD)
+            delay(1200)
+            autoConnectSavedDevice()
         }
-        selectVehicle(VehicleCatalog.vehicles.first()) // Padrão Palio 2001
+        selectVehicle(VehicleCatalog.vehicles.first())
         _proxiFeatures.value = proxiManager.getAvailableFeatures(_currentProxiHex.value)
+    }
+
+    /**
+     * Auto-conecta automaticamente ao último scanner OBD pareado no Bluetooth
+     */
+    fun autoConnectSavedDevice() {
+        if (currentConnection.state.value is ConnectionState.Connected || _isSimulatorActive.value) return
+        val prefs = getApplication<Application>().getSharedPreferences("obd_aj_prefs", Context.MODE_PRIVATE)
+        val savedMac = prefs.getString("last_obd_mac", null)
+
+        if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
+            val bonded = try { bluetoothAdapter.bondedDevices } catch (e: SecurityException) { emptySet() }
+            val target = if (!savedMac.isNullOrBlank()) {
+                bonded.find { it.address.equals(savedMac, ignoreCase = true) }
+            } else {
+                bonded.find { dev ->
+                    val name = dev.name ?: ""
+                    name.contains("obd", ignoreCase = true) ||
+                    name.contains("elm", ignoreCase = true) ||
+                    name.contains("vlinker", ignoreCase = true) ||
+                    name.contains("viecar", ignoreCase = true) ||
+                    name.contains("scanner", ignoreCase = true) ||
+                    name.contains("link", ignoreCase = true)
+                }
+            }
+
+            if (target != null) {
+                connectBluetooth(target.address)
+            }
+        }
     }
 
     /**
@@ -582,18 +615,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Toast.makeText(getApplication(), "Conectando ao scanner OBD...", Toast.LENGTH_SHORT).show()
             val ok = currentConnection.connect(address)
             if (ok) {
+                val prefs = getApplication<Application>().getSharedPreferences("obd_aj_prefs", Context.MODE_PRIVATE)
+                prefs.edit().putString("last_obd_mac", address).apply()
+
                 val conn = currentConnection.state.value as? ConnectionState.Connected
                 _isEcuConnected.value = conn?.isEcuConnected ?: false
                 _ignitionStatus.value = conn?.ignitionStatus ?: "Conectado"
                 _detectedProtocol.value = conn?.detectedProtocol ?: "OBD-II Auto"
 
                 if (conn?.isEcuConnected == true) {
-                    Toast.makeText(getApplication(), "✅ Scanner e Central (ECU) Conectados!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(getApplication(), "✅ Scanner e Central Conectados!", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(getApplication(), "⚠️ Scanner Conectado! Gire a chave para o 1º estágio (Pós-Chave).", Toast.LENGTH_LONG).show()
+                    Toast.makeText(getApplication(), "🟢 Scanner Conectado! Gire a chave para o 1º estágio (Pós-Chave).", Toast.LENGTH_LONG).show()
                 }
 
-                delay(600)
+                delay(500)
                 _showConnectionSheet.value = false
                 _selectedEcu.value?.let { configureEcuOnAdapter(it) }
                 startTelemetryLoop()
@@ -622,6 +658,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var packetCounter = 0
             var lastFpsCalcTime = System.currentTimeMillis()
             var consecutiveEcuFailures = 0
+            var loopCount = 0
 
             while (isActive) {
                 val conn = currentConnection.state.value
@@ -633,67 +670,137 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val ecu = _selectedEcu.value
                 val isKwp = ecu?.protocol == ProtocolType.KLINE_KWP2000_FAST
 
-                // FASE 1: Se a ECU ainda não respondeu (ex: carro estava com a chave desligada)
+                // =========================================================================
+                // FASE 1: DETECÇÃO AUTOMÁTICA DA IGNIÇÃO / PÓS-CHAVE (100% AUTOMÁTICA, SEM BOTÃO)
+                // =========================================================================
                 if (!_isEcuConnected.value) {
-                    val testRes = currentConnection.sendRawCommand("0100", timeoutMs = 3000).getOrDefault("")
+                    // Atualiza a tensão da bateria a cada 1 segundo (sempre presente na tomada OBD pino 16)
+                    val battVolt = currentConnection.readBatteryVoltage()
+                    if (battVolt > 5f) {
+                        _sensors.value = _sensors.value.map { s ->
+                            if (s.id == "battery") s.copy(currentValue = battVolt) else s
+                        }
+                    }
+
+                    // Interroga a ECU com PID 0100 (ou 2101 em centrais KWP)
+                    val testCmd = if (isKwp) "2101" else "0100"
+                    val testRes = currentConnection.sendRawCommand(testCmd, timeoutMs = 2500).getOrDefault("")
                     val cleanTest = testRes.replace(" ", "").replace("\r", "").replace("\n", "").trim().uppercase()
 
-                    if (cleanTest.contains("4100") || cleanTest.contains("410C") || cleanTest.contains("4105")) {
+                    // Se a central respondeu positivo (41 00 / 41 0C / 41 05 / 61 01)
+                    if (cleanTest.contains("4100") || cleanTest.contains("410C") || cleanTest.contains("4105") || cleanTest.contains("6101")) {
                         _isEcuConnected.value = true
                         _ignitionStatus.value = "Chave Ligada (ECU Ativa)"
                         val atdp = currentConnection.sendRawCommand("ATDP").getOrDefault("OBD-II").trim()
                         _detectedProtocol.value = atdp.lines().firstOrNull() ?: atdp
                         voiceCopilot.speak("Central do veículo detectada. Chave ligada.", priority = true)
+                        consecutiveEcuFailures = 0
                     } else {
-                        // Atualiza tensão da bateria mesmo com a chave desligada
-                        val battVolt = currentConnection.readBatteryVoltage()
-                        val updatedSensors = _sensors.value.map { s ->
-                            if (s.id == "battery") s.copy(currentValue = battVolt) else s
-                        }
-                        _sensors.value = updatedSensors
-                        _ignitionStatus.value = "Chave Desligada (Gire a chave para o 1º estágio)"
-                        delay(1000)
+                        _ignitionStatus.value = "Aguardando Chave (Gire para o 1º estágio)"
+                        delay(600)
                         continue
                     }
                 }
 
-                // FASE 2: Telemetria Ativa dos Sensores
+                // =========================================================================
+                // FASE 2: TELEMETRIA ATIVA DOS SENSORES EM ALTA VELOCIDADE
+                // =========================================================================
+                loopCount++
                 var anySuccessThisCycle = false
-                val updated = _sensors.value.map { sensor ->
-                    val cmd = if (isKwp && sensor.id == "rpm") "2101" else sensor.didHex
-                    val rawRes = currentConnection.sendRawCommand(cmd, timeoutMs = 800).getOrNull() ?: ""
-                    val parsedVal = parseSensorValue(sensor, rawRes, isKwp)
 
-                    val clean = rawRes.replace(" ", "").replace("\r", "").replace("\n", "").trim().uppercase()
-                    if (clean.contains("41") || clean.contains("61") || (sensor.id == "battery" && parsedVal > 5f)) {
+                // 1. Sensores de Alta Prioridade: RPM e Velocidade (Consultados a cada frame)
+                val rpmSensor = _sensors.value.find { it.id == "rpm" }
+                val speedSensor = _sensors.value.find { it.id == "speed" }
+
+                var newRpm = rpmSensor?.currentValue ?: 0f
+                var newSpeed = speedSensor?.currentValue ?: 0f
+
+                val rpmCmd = if (isKwp) "2101" else "010C"
+                val rpmRaw = currentConnection.sendRawCommand(rpmCmd, timeoutMs = 500).getOrNull() ?: ""
+                val cleanRpm = rpmRaw.replace(" ", "").replace("\r", "").replace("\n", "").uppercase()
+                if (cleanRpm.contains("410C") || (isKwp && cleanRpm.contains("6101"))) {
+                    anySuccessThisCycle = true
+                    packetCounter++
+                    if (rpmSensor != null) {
+                        newRpm = parseSensorValue(rpmSensor, rpmRaw, isKwp)
+                    }
+                }
+
+                if (!isKwp) {
+                    val speedRaw = currentConnection.sendRawCommand("010D", timeoutMs = 400).getOrNull() ?: ""
+                    val cleanSpeed = speedRaw.replace(" ", "").replace("\r", "").replace("\n", "").uppercase()
+                    if (cleanSpeed.contains("410D")) {
                         anySuccessThisCycle = true
                         packetCounter++
+                        if (speedSensor != null) {
+                            newSpeed = parseSensorValue(speedSensor, speedRaw, isKwp)
+                        }
                     }
-
-                    if (sensor.id == "rpm" && parsedVal > _peakRpm.value) _peakRpm.value = parsedVal
-                    if (sensor.id == "speed" && parsedVal > _peakSpeed.value) _peakSpeed.value = parsedVal
-                    if (sensor.id == "turbo" && parsedVal > _peakTurbo.value) _peakTurbo.value = parsedVal
-                    if (sensor.id == "coolant" && parsedVal > _peakCoolant.value) _peakCoolant.value = parsedVal
-
-                    sensor.copy(currentValue = parsedVal)
                 }
-                _sensors.value = updated
 
-                // Monitora se a ECU parou de responder (ex: usuário desligou a chave do carro)
+                // 2. Sensores de Média e Baixa Frequência
+                // Temperatura do motor a cada 10 ciclos (~1 segundo)
+                var newCoolant = _sensors.value.find { it.id == "coolant" }?.currentValue ?: 0f
+                if (loopCount % 10 == 0) {
+                    val coolantSensor = _sensors.value.find { it.id == "coolant" }
+                    val coolantCmd = if (isKwp) "2101" else "0105"
+                    val coolantRaw = currentConnection.sendRawCommand(coolantCmd, timeoutMs = 500).getOrNull() ?: ""
+                    if (coolantSensor != null) {
+                        newCoolant = parseSensorValue(coolantSensor, coolantRaw, isKwp)
+                    }
+                }
+
+                // Pressão do Coletor / Turbo (PID 010B) a cada 3 ciclos
+                var newTurbo = _sensors.value.find { it.id == "turbo" }?.currentValue ?: 0f
+                if (!isKwp && loopCount % 3 == 0) {
+                    val turboSensor = _sensors.value.find { it.id == "turbo" }
+                    val turboRaw = currentConnection.sendRawCommand("010B", timeoutMs = 400).getOrNull() ?: ""
+                    if (turboSensor != null) {
+                        newTurbo = parseSensorValue(turboSensor, turboRaw, isKwp)
+                    }
+                }
+
+                // Tensão da bateria a cada 20 ciclos (~2.5 segundos)
+                var newBattery = _sensors.value.find { it.id == "battery" }?.currentValue ?: 0f
+                if (loopCount % 20 == 0 || newBattery < 5f) {
+                    val bVal = currentConnection.readBatteryVoltage()
+                    if (bVal > 5f) newBattery = bVal
+                }
+
+                // Registra valores máximos (Peak Hold)
+                if (newRpm > _peakRpm.value) _peakRpm.value = newRpm
+                if (newSpeed > _peakSpeed.value) _peakSpeed.value = newSpeed
+                if (newTurbo > _peakTurbo.value) _peakTurbo.value = newTurbo
+                if (newCoolant > _peakCoolant.value) _peakCoolant.value = newCoolant
+
+                // Atualiza lista reativa de sensores na interface
+                _sensors.value = _sensors.value.map { sensor ->
+                    when (sensor.id) {
+                        "rpm" -> sensor.copy(currentValue = newRpm)
+                        "speed" -> sensor.copy(currentValue = newSpeed)
+                        "coolant" -> sensor.copy(currentValue = newCoolant)
+                        "turbo" -> sensor.copy(currentValue = newTurbo)
+                        "battery" -> sensor.copy(currentValue = newBattery)
+                        else -> sensor
+                    }
+                }
+
+                // Monitora se o usuário desligou a chave do veículo
                 if (!anySuccessThisCycle) {
                     consecutiveEcuFailures++
                     if (consecutiveEcuFailures >= 5) {
                         _isEcuConnected.value = false
-                        _ignitionStatus.value = "Chave Desligada ou ECU Ocupada"
+                        _ignitionStatus.value = "Chave Desligada • Aguardando Ignição"
+                        voiceCopilot.speak("Chave desligada.")
                         consecutiveEcuFailures = 0
                     }
                 } else {
                     consecutiveEcuFailures = 0
                     _isEcuConnected.value = true
-                    _ignitionStatus.value = "Chave Ligada (ECU Ativa)"
+                    _ignitionStatus.value = if (newRpm > 400f) "Motor em Funcionamento" else "Chave Ligada (ECU Ativa)"
                 }
 
-                // Calcula pacotes por segundo (FPS)
+                // Cálculo de FPS (mensagens processadas por segundo)
                 val now = System.currentTimeMillis()
                 if (now - lastFpsCalcTime >= 1000L) {
                     _telemetryFps.value = packetCounter
@@ -701,25 +808,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     lastFpsCalcTime = now
                 }
 
-                // Atualiza demais sistemas (arrancada, trip computer, dyno, osciloscópio, alertas)
-                val currentSpeed = updated.find { it.id == "speed" }?.currentValue ?: 0f
-                val currentRpm = updated.find { it.id == "rpm" }?.currentValue ?: 0f
-                val currentCoolant = updated.find { it.id == "coolant" }?.currentValue ?: 0f
-                val currentBattery = updated.find { it.id == "battery" }?.currentValue ?: 0f
-
-                val run = performanceMeter.updateSpeed(currentSpeed)
+                // Atualiza subsistemas: 0-100, computador de bordo, dinamômetro, lambda, alertas
+                val run = performanceMeter.updateSpeed(newSpeed)
                 _performanceRun.value = run
                 _dragMeterState.value = performanceMeter.state
 
-                val trip = tripComputer.update(currentSpeed, currentRpm)
+                val trip = tripComputer.update(newSpeed, newRpm)
                 _tripStats.value = trip
 
                 if (virtualDyno.isMeasuring) {
-                    _dynoResult.value = virtualDyno.update(currentSpeed, currentRpm)
+                    _dynoResult.value = virtualDyno.update(newSpeed, newRpm)
                 }
 
                 val t = System.currentTimeMillis() / 450.0
-                val lambdaVal = if (currentRpm > 400f) {
+                val lambdaVal = if (newRpm > 400f) {
                     (0.50f + 0.35f * Math.sin(t).toFloat() + ((Math.random().toFloat() - 0.5f) * 0.04f)).coerceIn(0.08f, 0.95f)
                 } else {
                     0.45f
@@ -727,21 +829,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentLambdaVoltage.value = lambdaVal
                 _lambdaHistory.value = (_lambdaHistory.value + lambdaVal).takeLast(60)
 
-                _batteryTestResult.value = batteryTester.updateVoltage(currentBattery, currentRpm)
+                _batteryTestResult.value = batteryTester.updateVoltage(newBattery, newRpm)
 
-                if (currentCoolant >= 102f) {
-                    voiceCopilot.speak("Atenção! Temperatura do motor elevada: ${currentCoolant.toInt()} graus!", priority = true)
-                } else if (currentBattery in 0.1f..11.8f && currentRpm > 400f) {
+                if (newCoolant >= 102f) {
+                    voiceCopilot.speak("Atenção! Temperatura do motor elevada: ${newCoolant.toInt()} graus!", priority = true)
+                } else if (newBattery in 0.1f..11.8f && newRpm > 400f) {
                     voiceCopilot.speak("Aviso: Tensão da bateria baixa. Verifique o alternador.")
-                } else if (currentRpm >= 5500f) {
+                } else if (newRpm >= 5500f) {
                     voiceCopilot.speak("Atenção: Limite de rotação atingido! Troque de marcha.", priority = true)
                 }
 
                 if (_isDatalogging.value) {
-                    telemetryLogger.logSnapshot(updated)
+                    telemetryLogger.logSnapshot(_sensors.value)
                 }
 
-                delay(60) // Alta velocidade (16 Hz)
+                delay(40) // Alta velocidade com excelente estabilidade (25 Hz)
             }
         }
     }
@@ -856,29 +958,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun readStandardObd2Dtcs(): List<DtcFault> {
-        val res = currentConnection.sendRawCommand("03").getOrDefault("")
-        val clean = res.replace(" ", "").replace("\r", "").replace("\n", "").replace(">", "").trim().uppercase()
-        val idx = clean.indexOf("43")
-        if (idx == -1) return emptyList()
-
-        val payload = clean.substring(idx + 2)
         val faults = mutableListOf<DtcFault>()
+
+        // 1. Modo 03: Códigos de Falha Armazenados / Confirmados (Stored DTCs)
+        val res03 = currentConnection.sendRawCommand("03", timeoutMs = 3000).getOrDefault("")
+        parseDtcResponse(res03, "43", "Injeção Eletrônica (OBD2)", faults)
+
+        // 2. Modo 07: Códigos de Falha Pendentes (Pending DTCs)
+        val res07 = currentConnection.sendRawCommand("07", timeoutMs = 3000).getOrDefault("")
+        parseDtcResponse(res07, "47", "Falha Pendente (Modo 07)", faults)
+
+        return faults.distinctBy { it.code }
+    }
+
+    private fun parseDtcResponse(raw: String, prefix: String, source: String, outList: MutableList<DtcFault>) {
+        val clean = raw.replace(" ", "").replace("\r", "").replace("\n", "").replace(">", "").trim().uppercase()
+        val idx = clean.indexOf(prefix)
+        if (idx == -1) return
+
+        var payload = clean.substring(idx + prefix.length)
+        // Tratamento do byte de contagem de DTCs OBD-II (ex: "43 02 01 00 03 00", payload length é 10 -> 10 % 4 == 2)
+        if (payload.length % 4 == 2) {
+            payload = payload.substring(2)
+        }
+
         for (i in 0 until (payload.length / 4)) {
             val chunk = payload.substring(i * 4, (i + 1) * 4)
             if (chunk == "0000" || chunk.length < 4) continue
             val code = formatStandardDtc(chunk)
             val desc = dbHelper.getDtcDescriptionPt(code) ?: "Anomalia no sistema ($code)"
             val sev = if (code.startsWith("P03") || code.startsWith("P02")) DtcSeverity.CRITICAL else DtcSeverity.MEDIUM
-            faults.add(
+            outList.add(
                 DtcFault(
                     code = code,
                     description = desc,
-                    ecuSource = "Injeção Eletrônica (OBD2)",
+                    ecuSource = source,
                     severity = sev
                 )
             )
         }
-        return faults
     }
 
     private fun formatStandardDtc(hex: String): String {

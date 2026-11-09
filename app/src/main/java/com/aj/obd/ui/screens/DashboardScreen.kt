@@ -327,7 +327,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                                     fontWeight = FontWeight.Black
                                 )
                                 Text(
-                                    text = "Adaptador Bluetooth conectado (${"%.1f".format(batterySensor?.currentValue ?: 0f)}V). Gire a chave do carro para a posição ligada (pós-chave com as luzes do painel acesas) para ler os dados do motor.",
+                                    text = "Adaptador Bluetooth conectado (${"%.1f".format(batterySensor?.currentValue ?: 0f)}V). Gire a chave do carro para o 1º estágio (painel aceso). A detecção é 100% automática sem botões — o cockpit começará a receber os dados imediatamente.",
                                     color = TextPrimary,
                                     fontSize = 11.sp,
                                     lineHeight = 15.sp

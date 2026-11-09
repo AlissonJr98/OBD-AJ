@@ -51,7 +51,6 @@ class Elm327Driver(private val connection: ObdConnection) {
         connection.sendRawCommand("ATS0")  // Desativa espaços para economizar largura de banda
         connection.sendRawCommand("ATH0")  // Headers desligados para leitura direta dos PIDs
         connection.sendRawCommand("ATAT1") // Adaptive Timing nível 1 (ajuste inteligente de clock)
-        connection.sendRawCommand("ATST32") // Timeout dinâmico calibrado para alta velocidade (32 x 4ms = 128ms)
         connection.sendRawCommand("ATSP0") // Auto-busca universal de protocolo OBD-II
 
         // Lê versão do firmware e tensão da bateria na porta OBD (pino 16)
@@ -114,7 +113,6 @@ class Elm327Driver(private val connection: ObdConnection) {
                 connection.sendRawCommand("ATSP0")  // Auto-busca do protocolo correto da ECU (CAN / KWP / ISO)
                 connection.sendRawCommand("ATH0")   // Respostas limpas sem cabeçalho
                 connection.sendRawCommand("ATAT1")
-                connection.sendRawCommand("ATST32")
             }
             ProtocolType.CAN_11BIT_500K -> {
                 connection.sendRawCommand("ATSP6")  // ISO 15765-4 CAN (11 bit, 500 kbaud)
@@ -122,19 +120,18 @@ class Elm327Driver(private val connection: ObdConnection) {
                 connection.sendRawCommand("ATCRA ${ecu.responseHeader}")
                 connection.sendRawCommand("ATAL")
                 connection.sendRawCommand("ATAT1")
-                connection.sendRawCommand("ATST32")
             }
             ProtocolType.CAN_29BIT_500K -> {
                 connection.sendRawCommand("ATSP7")  // ISO 15765-4 CAN (29 bit, 500 kbaud)
                 connection.sendRawCommand("ATSH ${ecu.requestHeader}")
                 connection.sendRawCommand("ATAL")
-                connection.sendRawCommand("ATST32")
+                connection.sendRawCommand("ATAT1")
             }
             ProtocolType.CAN_11BIT_250K -> {
                 connection.sendRawCommand("ATSP8")  // ISO 15765-4 CAN (11 bit, 250 kbaud)
                 connection.sendRawCommand("ATSH ${ecu.requestHeader}")
                 connection.sendRawCommand("ATCRA ${ecu.responseHeader}")
-                connection.sendRawCommand("ATST32")
+                connection.sendRawCommand("ATAT1")
             }
             ProtocolType.KLINE_KWP2000_FAST -> {
                 // Protocolo do Palio 2001 Fire (Marelli 4AF / 49F / ME7.3H4)

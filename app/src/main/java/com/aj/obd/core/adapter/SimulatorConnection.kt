@@ -112,6 +112,11 @@ class SimulatorConnection : ObdConnection {
             clean.startsWith("1902") -> "59020D03000008U17010008"
 
             // Leituras OBD-II padrão
+            clean == "0100" -> "4100BE3FB813"
+            clean == "010B" -> "410B64"
+            clean == "03" -> "43010130"
+            clean == "07" -> "4700"
+            clean == "ATDP" -> "ISO 15765-4 (CAN 11/500)"
             clean == "010C" || clean == "221000" -> {
                 simulatedRpm = (simulatedRpm + Random.nextInt(-20, 30)).coerceIn(800f, 5000f)
                 "410C%04X".format((simulatedRpm * 4).toInt())

@@ -231,8 +231,8 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isConnected && isEcuConnected) "ECU ONLINE • CHAVE LIGADA"
-                                       else if (isConnected) "ADAPTADOR CONECTADO • CHAVE DESLIGADA"
+                                text = if (isConnected && isEcuConnected) "ECU ONLINE • MOTOR / IGNIÇÃO"
+                                       else if (isConnected) "SCANNER CONECTADO • AGUARDANDO CHAVE"
                                        else "SCANNER AUTOMOTIVO",
                                 color = if (isConnected && isEcuConnected) TelemetryGreen else statusColor,
                                 fontSize = 10.sp,
@@ -261,7 +261,7 @@ fun HomeScreen(
                                     if (isEcuConnected) {
                                         "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V • $telemetryFps msgs/s"
                                     } else {
-                                        "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V • Gire a chave para o 1º estágio"
+                                        "${s.adapterType.label} • ${"%.1f".format(s.batteryVoltage)}V • Gire a chave para ler os dados da ECU"
                                     }
                                 }
                                 is ConnectionState.Connecting -> s.step
@@ -291,8 +291,8 @@ fun HomeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isConnected && isEcuConnected) "ONLINE"
-                                   else if (isConnected) "PÓS-CHAVE?"
+                            text = if (isConnected && isEcuConnected) "ECU ATIVA"
+                                   else if (isConnected) "AGUARDANDO CHAVE"
                                    else "CONECTAR",
                             color = if (isConnected && isEcuConnected) TelemetryGreen else AmberGlow,
                             fontSize = 10.sp,
